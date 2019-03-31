@@ -17,9 +17,9 @@ func (m Move) String() string {
 	return fmt.Sprintf("{\nStart:\n%v\nEnd:\n%v\nPiece: %v\n}\n", m.Start, m.End, m.Piece)
 }
 
-// allContinuousMoves returns all moves that result in further play.
+// AllContinuousMoves returns all moves that result in further play.
 // See https://harddrop.com/wiki/Combo_Setups#4-Wide_with_3_Residua.
-func allContinuousMoves() []Move {
+func AllContinuousMoves() []Move {
 	all := make([]Move, 0, 140)
 
 	const X, o = true, false

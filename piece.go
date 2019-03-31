@@ -1,14 +1,11 @@
 package tetris
 
 import (
+	"errors"
 	"fmt"
 	"math/bits"
 	"math/rand"
 )
-
-func init() {
-	precomputeSlices()
-}
 
 // Piece represents a tetrimino or empty piece.
 type Piece uint8
@@ -73,6 +70,11 @@ func (p Piece) GameString() string {
 	panic("Unknown piece")
 }
 
+// PieceSet returns a PieceSet containing only this Piece.
+func (p Piece) PieceSet() PieceSet {
+	return 1 << p
+}
+
 // Mirror returns the mirrored version of a piece.
 func Mirror(p Piece) Piece {
 	switch p {
@@ -99,18 +101,18 @@ func RandPieces(length int) []Piece {
 	return pieces[:length]
 }
 
-// PieceSet represents a set of pieces.
-// Duplicates and EmptyPieces are not recorded.
+// PieceSet represents a set of pieces. Duplicates and EmptyPieces are not recorded.
+// The empty value is represents no pieces.
 type PieceSet uint8
 
 // NewPieceSet creates a new PieceSet from the specified Pieces.
 func NewPieceSet(pieces ...Piece) PieceSet {
 	var ps PieceSet
 	for _, p := range pieces {
-		ps |= 1 << p
+		ps |= p.PieceSet()
 	}
 	// Zero out the EmptyPiece.
-	ps &^= 1 << EmptyPiece
+	ps &^= EmptyPiece.PieceSet()
 	return ps
 }
 
@@ -121,12 +123,12 @@ func (ps PieceSet) Union(other PieceSet) PieceSet {
 
 // Add returns a PieceSet with a certain Piece added.
 func (ps PieceSet) Add(p Piece) PieceSet {
-	return ps | (1 << p)
+	return ps | p.PieceSet()
 }
 
 // Contains returns whether the PieceSet contains the piece.
 func (ps PieceSet) Contains(p Piece) bool {
-	return ps&(1<<p) != 0
+	return ps&p.PieceSet() != 0
 }
 
 // Len returns the number of items in the PieceSet.
@@ -134,18 +136,8 @@ func (ps PieceSet) Len() int {
 	return bits.OnesCount8(uint8(ps))
 }
 
-// Precompute the slices for each PieceSet.
-var toSlices [256][]Piece
-
-func precomputeSlices() {
-	for i := 0; i <= 255; i++ {
-		ps := PieceSet(i)
-		toSlices[i] = ps.toSlice()
-	}
-}
-
-// toSlice is the non-precomputed version of ToSlice.
-func (ps PieceSet) toSlice() []Piece {
+// ToSlice returns a slice of all Pieces represented by this set.
+func (ps PieceSet) ToSlice() []Piece {
 	if ps.Len() == 0 {
 		return nil
 	}
@@ -158,12 +150,6 @@ func (ps PieceSet) toSlice() []Piece {
 	return slice
 }
 
-// ToSlice returns a slice of all Pieces represented by this set.
-// This slice should not be modified.
-func (ps PieceSet) ToSlice() []Piece {
-	return toSlices[int(ps)]
-}
-
 func (ps PieceSet) String() string {
 	return fmt.Sprint(ps.ToSlice())
 }
@@ -173,4 +159,55 @@ func (ps PieceSet) String() string {
 func (ps PieceSet) Inverted() PieceSet {
 	// Invert and zero out the EmptyPiece.
 	return (ps ^ 255) &^ (1 << EmptyPiece)
+}
+
+// PieceSeq represents a sequence of 7 or fewer pieces.
+// PieceSeq can be used as a map key.
+type PieceSeq struct {
+	encoding uint32
+	len      uint8
+}
+
+// NewPieceSeq returns a PieceSeq or an error if the length of the slice
+// is over 7.
+func NewPieceSeq(pieces []Piece) (PieceSeq, error) {
+	if len(pieces) > 7 {
+		return PieceSeq{}, errors.New("len(pieces) must be 7 or less")
+	}
+	var encoding uint32
+	for idx, p := range pieces {
+		encoding += uint32(p) << (4 * uint32(idx))
+	}
+	return PieceSeq{encoding, uint8(len(pieces))}, nil
+}
+
+// MustPieceSeq returns a new PieceSeq and panics if the slice is over
+// 7 in length.
+func MustPieceSeq(p []Piece) PieceSeq {
+	seq, err := NewPieceSeq(p)
+	if err != nil {
+		panic(fmt.Sprintf("NewPieceSeq failed: %v", err))
+	}
+	return seq
+}
+
+// ToSlice converts a PieceSeq into a []Piece.
+func (seq PieceSeq) ToSlice() []Piece {
+	slice := make([]Piece, seq.len)
+	for idx := uint8(0); idx < seq.len; idx++ {
+		shift := 4 * uint32(idx)
+		slice[idx] = Piece((seq.encoding >> shift) & 15)
+	}
+	return slice
+}
+
+// Append returns a new PieceSeq with the piece appended.
+func (seq PieceSeq) Append(p Piece) (PieceSeq, error) {
+	if seq.len >= 7 {
+		return PieceSeq{}, errors.New("PieceSeq is already at max capacity")
+	}
+	return PieceSeq{
+		encoding: seq.encoding + uint32(p)<<(4*uint32(seq.len)),
+		len:      seq.len + 1,
+	}, nil
 }

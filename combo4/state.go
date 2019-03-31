@@ -1,6 +1,7 @@
 package combo4
 
 import (
+	"sort"
 	"tetris"
 )
 
@@ -32,10 +33,44 @@ func NewStateSet(states ...State) StateSet {
 	return set
 }
 
-// EndStates returns a set of possible end states given a set of
-// initial/current states and pieces to consume. If there are pieces that
-// cannot be consumed, EndStates also returns the unconsumed pieces.
-func (nfa NFA) EndStates(initial StateSet, pieces ...tetris.Piece) (StateSet, []tetris.Piece) {
+// SortedSlice returns a sorted slice of the states in the set.
+func (set StateSet) SortedSlice() []State {
+	slice := make([]State, 0, len(set))
+	for s := range set {
+		slice = append(slice, s)
+	}
+	sort.Slice(slice, func(i, j int) bool {
+		if slice[i].Field != slice[j].Field {
+			return slice[i].Field < slice[j].Field
+		}
+		return slice[i].Hold < slice[j].Hold
+	})
+	return slice
+}
+
+// EndStates returns a set of end states given a set of
+// initial/current states and pieces to consume. EndStates
+// returns nil if it not possible to consume all pieces.
+func (nfa *NFA) EndStates(initial State, pieces ...tetris.Piece) StateSet {
+	set := map[State]bool{initial: true}
+	endStates, unconsumed := nfa.TryConsume(set, pieces...)
+	if len(unconsumed) == 0 {
+		return endStates
+	}
+	return nil
+}
+
+// NextStates returns the possible next states.
+// WARNING: The returned slice should not be modified by the caller.
+func (nfa *NFA) NextStates(initial State, piece tetris.Piece) []State {
+	return nfa.trans[piece][initial]
+}
+
+// TryConsume returns a set of end states given a set of initial/current
+// states and pieces to consume. If there are pieces that cannot be consumed,
+// EndStates also returns the unconsumed pieces and the final states before
+// that.
+func (nfa *NFA) TryConsume(initial StateSet, pieces ...tetris.Piece) (StateSet, []tetris.Piece) {
 	cur := make(map[State]bool)
 	for state, ok := range initial {
 		cur[state] = ok
@@ -62,10 +97,7 @@ func (nfa NFA) EndStates(initial StateSet, pieces ...tetris.Piece) (StateSet, []
 
 // NewNFA creates a new NFA. In general users should reuse the same NFA
 // everywhere because the NFA is stateless and immutable.
-func NewNFA() *NFA {
-	movesList := allContinuousMoves()
-	// TODO(benjaminchang): Include non-continuous moves as well.
-
+func NewNFA(movesList []Move) *NFA {
 	// Get a set of all Field4x4s which have possible moves.
 	startFields := make(map[Field4x4]bool)
 	for _, move := range movesList {

@@ -7,7 +7,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-func BenchmarkToSlice(b *testing.B) {
+func BenchmarkPieceSetToSlice(b *testing.B) {
 	inputs := make([]PieceSet, b.N)
 	for n := 0; n < b.N; n++ {
 		inputs[n] = PieceSet(rand.Int31())
@@ -17,6 +17,24 @@ func BenchmarkToSlice(b *testing.B) {
 	totalLengths := 0
 	for n := 0; n < b.N; n++ {
 		totalLengths += len(inputs[n].ToSlice())
+	}
+	b.Logf("Average length is %.2f in %d tries", float64(totalLengths)/float64(b.N), b.N)
+}
+
+func BenchmarkPieceSeq(b *testing.B) {
+	inputs := make([][]Piece, b.N)
+	for n := 0; n < b.N; n++ {
+		inputs[n] = RandPieces(7)
+	}
+	b.ResetTimer()
+
+	totalLengths := 0
+	for n := 0; n < b.N; n++ {
+		seq, err := NewPieceSeq(inputs[n])
+		if err != nil {
+			b.Errorf("NewPieceSeq failed: %v", err)
+		}
+		totalLengths += len(seq.ToSlice())
 	}
 	b.Logf("Average length is %.2f in %d tries", float64(totalLengths)/float64(b.N), b.N)
 }
@@ -151,5 +169,33 @@ func TestUnion(t *testing.T) {
 	want := NewPieceSet(S, T, J)
 	if got := st.Union(tj); got != want {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestNewPieceSeq(t *testing.T) {
+	tests := []struct {
+		desc   string
+		pieces []Piece
+	}{
+		{
+			desc:   "Three pieces",
+			pieces: []Piece{I, L, O},
+		},
+		{
+			desc:   "7  pieces",
+			pieces: []Piece{I, L, O, S, J, S, I},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			seq, err := NewPieceSeq(test.pieces)
+			if err != nil {
+				t.Fatalf("NewPieceSeq failed: %v", err)
+			}
+			got := seq.ToSlice()
+			if diff := cmp.Diff(test.pieces, got); diff != "" {
+				t.Errorf("ToSlice() mismatch(-want +got):\n%s", diff)
+			}
+		})
 	}
 }
