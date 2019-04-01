@@ -1,6 +1,8 @@
 package tetris
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/bits"
@@ -162,7 +164,8 @@ func (ps PieceSet) Inverted() PieceSet {
 }
 
 // PieceSeq represents a sequence of 7 or fewer pieces.
-// PieceSeq can be used as a map key.
+// PieceSeq can be used as a map key. The empty value
+// is usable.
 type PieceSeq struct {
 	encoding uint32
 	len      uint8
@@ -201,6 +204,10 @@ func (seq PieceSeq) ToSlice() []Piece {
 	return slice
 }
 
+func (seq PieceSeq) String() string {
+	return fmt.Sprintf("%v", seq.ToSlice())
+}
+
 // Append returns a new PieceSeq with the piece appended.
 func (seq PieceSeq) Append(p Piece) (PieceSeq, error) {
 	if seq.len >= 7 {
@@ -210,4 +217,29 @@ func (seq PieceSeq) Append(p Piece) (PieceSeq, error) {
 		encoding: seq.encoding + uint32(p)<<(4*uint32(seq.len)),
 		len:      seq.len + 1,
 	}, nil
+}
+
+// GobEncode returns a bytes representation of the PieceSeq.
+func (seq PieceSeq) GobEncode() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	if err := binary.Write(buf, binary.BigEndian, seq.len); err != nil {
+		return nil, err
+	}
+	if err := binary.Write(buf, binary.BigEndian, seq.encoding); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// GobDecode decodes a bytes representation of PieceSeq into the reciever.
+func (seq *PieceSeq) GobDecode(b []byte) error {
+	buf := new(bytes.Buffer)
+	buf.Write(b)
+	if err := binary.Read(buf, binary.BigEndian, &seq.len); err != nil {
+		return err
+	}
+	if err := binary.Read(buf, binary.BigEndian, &seq.encoding); err != nil {
+		return err
+	}
+	return nil
 }

@@ -185,6 +185,10 @@ func TestNewPieceSeq(t *testing.T) {
 			desc:   "7  pieces",
 			pieces: []Piece{I, L, O, S, J, S, I},
 		},
+		{
+			desc:   "Include empty piece",
+			pieces: []Piece{I, EmptyPiece, O, EmptyPiece},
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
@@ -197,5 +201,36 @@ func TestNewPieceSeq(t *testing.T) {
 				t.Errorf("ToSlice() mismatch(-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestPieceSeqAppend(t *testing.T) {
+	var seq PieceSeq
+	want := []Piece{S, EmptyPiece, O}
+	for _, p := range want {
+		var err error
+		seq, err = seq.Append(p)
+		if err != nil {
+			t.Fatalf("Append(%s) failed", p)
+		}
+	}
+	if diff := cmp.Diff(MustPieceSeq(want).String(), seq.String()); diff != "" {
+		t.Errorf("sequence mismatch(-want +got):\n%s", diff)
+	}
+}
+
+func TestPieceSeqEncodeDecode(t *testing.T) {
+	seq := MustPieceSeq(NonemptyPieces[:])
+	bytes, err := seq.GobEncode()
+	if err != nil {
+		t.Fatalf("GobEncode failed: %v", err)
+	}
+
+	got := &PieceSeq{}
+	if err := got.GobDecode(bytes); err != nil {
+		t.Fatalf("GobDecode failed: %v", err)
+	}
+	if diff := cmp.Diff(seq.ToSlice(), got.ToSlice()); diff != "" {
+		t.Errorf("mismatch after encoding + decoding (-want +got):\n%s", diff)
 	}
 }

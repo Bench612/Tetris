@@ -3,6 +3,10 @@ package bot
 import (
 	"testing"
 	"tetris"
+	"tetris/combo4"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 func TestForEach7Seq(t *testing.T) {
@@ -14,6 +18,10 @@ func TestForEach7Seq(t *testing.T) {
 		{
 			desc: "Four bag (J,S,I remaining)",
 			bag:  tetris.NewPieceSet(tetris.J, tetris.S, tetris.I).Inverted(),
+		},
+		{
+			desc: "Five bag (J,S remaining)",
+			bag:  tetris.NewPieceSet(tetris.J, tetris.S).Inverted(),
 		},
 		{
 			desc: "Empty bag",
@@ -59,5 +67,46 @@ func TestForEach7Seq(t *testing.T) {
 				})
 			})
 		})
+	}
+}
+
+func TestAllBags(t *testing.T) {
+	bags := allBags()
+	seen := make(map[tetris.PieceSet]bool)
+	for _, b := range bags {
+		if seen[b] {
+			t.Errorf("bag %v is duplicated", b)
+		}
+		seen[b] = true
+	}
+	if len(bags) != 128 { // 2^7
+		t.Errorf("got %d bags, want 128", len(bags))
+	}
+}
+
+func TestEncodeDecode(t *testing.T) {
+	pieceSet := tetris.NewPieceSet(tetris.S)
+	state := combo4.State{Field: combo4.LeftI, Hold: tetris.L}
+	seq := tetris.MustPieceSeq(tetris.NonemptyPieces[:])
+	s := &Scorer{
+		inviable: map[tetris.PieceSet]map[combo4.State]map[tetris.PieceSeq]bool{
+			pieceSet: map[combo4.State]map[tetris.PieceSeq]bool{
+				state: map[tetris.PieceSeq]bool{
+					seq: true,
+				},
+			},
+		},
+	}
+	bytes, err := s.GobEncode()
+	if err != nil {
+		t.Fatalf("GobEncode failed: %v", err)
+	}
+
+	got := &Scorer{}
+	if err := got.GobDecode(bytes); err != nil {
+		t.Fatalf("GobDecode failed: %v", err)
+	}
+	if diff := cmp.Diff(s.inviable, got.inviable, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("mismatch after encoding + decoding (-want +got):\n%s", diff)
 	}
 }
