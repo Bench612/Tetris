@@ -15,7 +15,7 @@ func main() {
 		fmt.Printf("encode failed: %v", err)
 		os.Exit(1)
 	}
-	if err := ioutil.WriteFile("./scorer.txt", []byte(goString(bytes)), 0644); err != nil {
+	if err := ioutil.WriteFile("./scorer_gob.txt", []byte(goString(bytes)), 0644); err != nil {
 		fmt.Printf("WriteFile failed: %v", err)
 		os.Exit(1)
 	}

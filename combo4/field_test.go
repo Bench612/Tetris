@@ -19,7 +19,7 @@ func TestField4x4(t *testing.T) {
 				{true, false, false, false},
 				{true, true, false, false},
 			},
-			wantString:      "    \n    \n□   \n□□  \n",
+			wantString:      "____\n____\n□___\n□□__\n",
 			wantNumOccupied: 3,
 		},
 		{
@@ -32,13 +32,13 @@ func TestField4x4(t *testing.T) {
 				{true, false, false, false},
 				{true, true, false, false},
 			},
-			wantString:      "    \n    \n□   \n□□  \n",
+			wantString:      "____\n____\n□___\n□□__\n",
 			wantNumOccupied: 3,
 		},
 		{
 			desc:            "No rows",
 			input:           [][4]bool{},
-			wantString:      "    \n    \n    \n    \n",
+			wantString:      "____\n____\n____\n____\n",
 			wantNumOccupied: 0,
 		},
 	}

@@ -1,7 +1,6 @@
 package combo4
 
 import (
-	"sort"
 	"tetris"
 )
 
@@ -33,18 +32,12 @@ func NewStateSet(states ...State) StateSet {
 	return set
 }
 
-// SortedSlice returns a sorted slice of the states in the set.
-func (set StateSet) SortedSlice() []State {
+// Slice returns a slice of the states in the set.
+func (set StateSet) Slice() []State {
 	slice := make([]State, 0, len(set))
 	for s := range set {
 		slice = append(slice, s)
 	}
-	sort.Slice(slice, func(i, j int) bool {
-		if slice[i].Field != slice[j].Field {
-			return slice[i].Field < slice[j].Field
-		}
-		return slice[i].Hold < slice[j].Hold
-	})
 	return slice
 }
 

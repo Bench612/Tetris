@@ -1,9 +1,6 @@
 package tetris
 
 import (
-	"bytes"
-	"encoding/binary"
-	"errors"
 	"fmt"
 	"math/bits"
 	"math/rand"
@@ -161,85 +158,4 @@ func (ps PieceSet) String() string {
 func (ps PieceSet) Inverted() PieceSet {
 	// Invert and zero out the EmptyPiece.
 	return (ps ^ 255) &^ (1 << EmptyPiece)
-}
-
-// PieceSeq represents a sequence of 7 or fewer pieces.
-// PieceSeq can be used as a map key. The empty value
-// is usable.
-type PieceSeq struct {
-	encoding uint32
-	len      uint8
-}
-
-// NewPieceSeq returns a PieceSeq or an error if the length of the slice
-// is over 7.
-func NewPieceSeq(pieces []Piece) (PieceSeq, error) {
-	if len(pieces) > 7 {
-		return PieceSeq{}, errors.New("len(pieces) must be 7 or less")
-	}
-	var encoding uint32
-	for idx, p := range pieces {
-		encoding += uint32(p) << (4 * uint32(idx))
-	}
-	return PieceSeq{encoding, uint8(len(pieces))}, nil
-}
-
-// MustPieceSeq returns a new PieceSeq and panics if the slice is over
-// 7 in length.
-func MustPieceSeq(p []Piece) PieceSeq {
-	seq, err := NewPieceSeq(p)
-	if err != nil {
-		panic(fmt.Sprintf("NewPieceSeq failed: %v", err))
-	}
-	return seq
-}
-
-// ToSlice converts a PieceSeq into a []Piece.
-func (seq PieceSeq) ToSlice() []Piece {
-	slice := make([]Piece, seq.len)
-	for idx := uint8(0); idx < seq.len; idx++ {
-		shift := 4 * uint32(idx)
-		slice[idx] = Piece((seq.encoding >> shift) & 15)
-	}
-	return slice
-}
-
-func (seq PieceSeq) String() string {
-	return fmt.Sprintf("%v", seq.ToSlice())
-}
-
-// Append returns a new PieceSeq with the piece appended.
-func (seq PieceSeq) Append(p Piece) (PieceSeq, error) {
-	if seq.len >= 7 {
-		return PieceSeq{}, errors.New("PieceSeq is already at max capacity")
-	}
-	return PieceSeq{
-		encoding: seq.encoding + uint32(p)<<(4*uint32(seq.len)),
-		len:      seq.len + 1,
-	}, nil
-}
-
-// GobEncode returns a bytes representation of the PieceSeq.
-func (seq PieceSeq) GobEncode() ([]byte, error) {
-	buf := new(bytes.Buffer)
-	if err := binary.Write(buf, binary.BigEndian, seq.len); err != nil {
-		return nil, err
-	}
-	if err := binary.Write(buf, binary.BigEndian, seq.encoding); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-// GobDecode decodes a bytes representation of PieceSeq into the reciever.
-func (seq *PieceSeq) GobDecode(b []byte) error {
-	buf := new(bytes.Buffer)
-	buf.Write(b)
-	if err := binary.Read(buf, binary.BigEndian, &seq.len); err != nil {
-		return err
-	}
-	if err := binary.Read(buf, binary.BigEndian, &seq.encoding); err != nil {
-		return err
-	}
-	return nil
 }

@@ -1,12 +1,10 @@
 package bot
 
 import (
+	"bytes"
 	"testing"
 	"tetris"
 	"tetris/combo4"
-
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 )
 
 func TestForEach7Seq(t *testing.T) {
@@ -36,12 +34,12 @@ func TestForEach7Seq(t *testing.T) {
 		t.Run(test.desc, func(t *testing.T) {
 			// Use t.Fatal checks to prevent spamming the error logs.
 			t.Run("Basic checks", func(t *testing.T) {
-				seen := make(map[tetris.PieceSeq]bool)
+				seen := make(map[tetris.Seq]bool)
 				forEach7Seq(test.bag, func(perm []tetris.Piece) {
 					if len(perm) != 7 {
 						t.Fatalf("%v: expected 7 elements in permuation", perm)
 					}
-					seq := tetris.MustPieceSeq(perm)
+					seq := tetris.MustSeq(perm)
 					if seen[seq] {
 						t.Fatalf("%v: permutation is repeated", perm)
 					}
@@ -85,28 +83,53 @@ func TestAllBags(t *testing.T) {
 }
 
 func TestEncodeDecode(t *testing.T) {
-	pieceSet := tetris.NewPieceSet(tetris.S)
-	state := combo4.State{Field: combo4.LeftI, Hold: tetris.L}
-	seq := tetris.MustPieceSeq(tetris.NonemptyPieces[:])
+	seqSet := new(tetris.SeqSet)
+	seqSet.AddPrefix(tetris.NonemptyPieces[:])
 	s := &Scorer{
-		inviable: map[tetris.PieceSet]map[combo4.State]map[tetris.PieceSeq]bool{
-			pieceSet: map[combo4.State]map[tetris.PieceSeq]bool{
-				state: map[tetris.PieceSeq]bool{
-					seq: true,
-				},
-			},
+		inviable: map[combo4.State]*tetris.SeqSet{
+			combo4.State{Field: combo4.LeftI, Hold: tetris.L}: seqSet,
 		},
 	}
-	bytes, err := s.GobEncode()
+
+	enc1, err := s.GobEncode()
 	if err != nil {
 		t.Fatalf("GobEncode failed: %v", err)
 	}
 
 	got := &Scorer{}
-	if err := got.GobDecode(bytes); err != nil {
+	if err := got.GobDecode(enc1); err != nil {
 		t.Fatalf("GobDecode failed: %v", err)
 	}
-	if diff := cmp.Diff(s.inviable, got.inviable, cmpopts.EquateEmpty()); diff != "" {
-		t.Errorf("mismatch after encoding + decoding (-want +got):\n%s", diff)
+	enc2, err := s.GobEncode()
+	if err != nil {
+		t.Fatalf("Second GobEncode failed: %v", err)
 	}
+
+	if !bytes.Equal(enc1, enc2) {
+		t.Fatalf("First and second GobEncode returned different values ")
+	}
+}
+
+var scorerBenchmark *Scorer
+
+func BenchmarkNewScorer(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		scorerBenchmark = NewScorer()
+	}
+}
+
+func BenchmarkScore(b *testing.B) {
+	s := NewScorer()
+	set := combo4.NewStateSet(
+		combo4.State{Field: combo4.LeftI},
+		combo4.State{Field: combo4.LeftZ},
+		combo4.State{Field: combo4.RightI},
+	)
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		s.Score(set, tetris.NewPieceSet(tetris.I, tetris.J))
+	}
+}
+
+func TestScorer(t *testing.T) {
 }

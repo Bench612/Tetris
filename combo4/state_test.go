@@ -82,7 +82,7 @@ func TestTryConsume(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			gotEndStates, gotUnconsumed := nfa.TryConsume(test.initState, test.pieces...)
+			gotEndStates, gotUnconsumed := nfa.TryConsume(NewStateSet(test.initState), test.pieces...)
 			if diff := cmp.Diff(map[State]bool(test.wantEndStates), map[State]bool(gotEndStates)); diff != "" {
 				t.Errorf("end states mismatch(-want +got):\n%s", diff)
 			}
