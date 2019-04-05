@@ -67,12 +67,12 @@ func (seq Seq) Append(p Piece) (Seq, error) {
 
 // SeqSet represents a set of sequences.
 //
-// The SeqSet is defined by prefixes. For example, given a SeqSet with the
+// A SeqSet is defined by prefixes. For example, given a SeqSet with the
 // prefix [T O I], the SeqSet contains [T O I], [T O I T], [T O I Z Z], etc.
-// This can be useful for storing Sequences that fail since you know that all
+// This can be useful for storing sequences that fail since you know that all
 // sequences with that prefix will also fail.
 //
-// The nil pointer is usable.
+// The nil pointer is usable but cannot be appended to.
 type SeqSet struct {
 	hasAllSeq  bool       // Whether all sequences are contained.
 	subSeqSets [7]*SeqSet // "map" from Piece to a SeqSet.
@@ -105,12 +105,15 @@ func (s *SeqSet) AddPrefix(prefix []Piece) {
 		}
 		cur = next
 	}
-
-	lastPiece := prefix[len(prefix)-1]
-	cur.subSeqSets[lastPiece-1] = ContainsAllSeqSet
+	if !cur.hasAllSeq {
+		lastPiece := prefix[len(prefix)-1]
+		// Use ContainsAllSeqSet as the leaf node to save space.
+		// This means we have to make sure leaf nodes are never modified.
+		cur.subSeqSets[lastPiece-1] = ContainsAllSeqSet
+	}
 }
 
-// Contains return if the sequence is contained in the SeqSet.
+// Contains returns if the sequence is contained in the SeqSet.
 // Contains panics if the sequence contains an EmptyPiece.
 func (s *SeqSet) Contains(sequence []Piece) bool {
 	if s == nil {
@@ -126,8 +129,64 @@ func (s *SeqSet) Contains(sequence []Piece) bool {
 	return sub.Contains(sequence[1:])
 }
 
+// Prefixes returns the prefixes contained in this SeqSet.
+func (s *SeqSet) Prefixes() [][]Piece {
+	all := s.reversedPrefixes(0)
+	for _, p := range all {
+		// Reverse each of the reversed prefixes.
+		for i := 0; i < len(p)/2; i++ {
+			opp := len(p) - 1 - i
+			p[i], p[opp] = p[opp], p[i]
+		}
+	}
+	return all
+}
+
+// reversedPrefixes returns all prefixes in reverse. This is more efficient
+// because slices are better to append to instead of prepend.
+func (s *SeqSet) reversedPrefixes(depth int) [][]Piece {
+	if s == nil {
+		return nil
+	}
+	if s.hasAllSeq {
+		return [][]Piece{
+			make([]Piece, 0, depth),
+		}
+	}
+	var all [][]Piece
+	for idx, sub := range s.subSeqSets {
+		piece := Piece(idx + 1)
+		for _, subPrefix := range sub.reversedPrefixes(depth + 1) {
+			prefix := append(subPrefix, piece)
+			all = append(all, prefix)
+		}
+	}
+	return all
+}
+
+func (s *SeqSet) String() string {
+	return fmt.Sprintf("{prefixes=%v}", s.Prefixes())
+}
+
+// Copy returns a deep copy of the SeqSet.
+func (s *SeqSet) Copy() *SeqSet {
+	if s == nil {
+		return nil
+	}
+	if s.hasAllSeq {
+		return ContainsAllSeqSet
+	}
+	copy := &SeqSet{}
+	for idx, original := range s.subSeqSets {
+		copy.subSeqSets[idx] = original.Copy()
+	}
+	return copy
+}
+
 // Union returns the union of this SeqSet and another.
-// The results of Union are invalid if either SeqSet is modified.
+//
+// WARNING: The input and output SeqSets should not be modified after this.
+// Create a Copy of the inputs if you want to avoid this.
 func (s *SeqSet) Union(other *SeqSet) *SeqSet {
 	if s == nil {
 		return other
@@ -145,8 +204,10 @@ func (s *SeqSet) Union(other *SeqSet) *SeqSet {
 	return union
 }
 
-// Intersection returns the intersecion of this SeqSet and another.
-// The results of Intersection are invalid if either SeqSet is modified.
+// Intersection returns the intersection of this SeqSet and another.
+//
+// WARNING: The input and output SeqSets should not be modified after this.
+// Create a Copy of the inputs if you want to avoid this.
 func (s *SeqSet) Intersection(other *SeqSet) *SeqSet {
 	if s == nil || other == nil {
 		return nil
@@ -157,17 +218,17 @@ func (s *SeqSet) Intersection(other *SeqSet) *SeqSet {
 	if other.hasAllSeq {
 		return s
 	}
-	intersection := &SeqSet{}
+	intersect := &SeqSet{}
 	var hasSubSeq bool
-	for i := range intersection.subSeqSets {
+	for i := range intersect.subSeqSets {
 		subInter := s.subSeqSets[i].Intersection(other.subSeqSets[i])
 		if subInter != nil {
-			intersection.subSeqSets[i] = subInter
+			intersect.subSeqSets[i] = subInter
 			hasSubSeq = true
 		}
 	}
 	if hasSubSeq {
-		return intersection
+		return intersect
 	}
 	return nil
 }
@@ -196,9 +257,13 @@ func (s *SeqSet) Size(length int) int {
 
 // GobEncode returns a bytes representation of the SeqSet.
 // GobEncode always returns a nil error.
-func (s SeqSet) GobEncode() ([]byte, error) {
+func (s *SeqSet) GobEncode() ([]byte, error) {
 	buf := new(bytes.Buffer)
-	s.encodeToBuffer(buf)
+	if s == nil {
+		new(SeqSet).encodeToBuffer(buf)
+	} else {
+		s.encodeToBuffer(buf)
+	}
 	return buf.Bytes(), nil
 }
 
@@ -261,9 +326,6 @@ func decodeFromBuffer(buf *bytes.Buffer) (*SeqSet, error) {
 
 // Equals returns if two SeqSets are equal.
 func (s *SeqSet) Equals(other *SeqSet) bool {
-	if s == nil || other == nil {
-		return s == nil && other == nil
-	}
 	b1, _ := s.GobEncode()
 	b2, _ := other.GobEncode()
 	return bytes.Equal(b1, b2)

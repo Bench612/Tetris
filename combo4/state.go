@@ -33,6 +33,7 @@ func NewStateSet(states ...State) StateSet {
 }
 
 // Slice returns a slice of the states in the set.
+// The order of the slice is not deterministic.
 func (set StateSet) Slice() []State {
 	slice := make([]State, 0, len(set))
 	for s := range set {
@@ -54,6 +55,7 @@ func (nfa *NFA) EndStates(initial State, pieces ...tetris.Piece) StateSet {
 }
 
 // NextStates returns the possible next states.
+//
 // WARNING: The returned slice should not be modified by the caller.
 func (nfa *NFA) NextStates(initial State, piece tetris.Piece) []State {
 	return nfa.trans[piece][initial]
@@ -88,8 +90,8 @@ func (nfa *NFA) TryConsume(initial StateSet, pieces ...tetris.Piece) (StateSet, 
 	return cur, nil
 }
 
-// NewNFA creates a new NFA. In general users should reuse the same NFA
-// everywhere because the NFA is stateless and immutable.
+// NewNFA creates a new NFA. In general callers should reuse the same NFA
+// everywhere because the NFA is safe for concurrent use.
 func NewNFA(movesList []Move) *NFA {
 	// Get a set of all Field4x4s which have possible moves.
 	startFields := make(map[Field4x4]bool)

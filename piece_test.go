@@ -2,6 +2,7 @@ package tetris
 
 import (
 	"math/rand"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -169,5 +170,28 @@ func TestUnion(t *testing.T) {
 	want := NewPieceSet(S, T, J)
 	if got := st.Union(tj); got != want {
 		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func reverse(s string) (result string) {
+	for _, v := range s {
+		result = string(v) + result
+	}
+	return
+}
+
+func TestMirror(t *testing.T) {
+	for _, piece := range NonemptyPieces {
+		wantLines := strings.Split(piece.GameString(), "\n")
+		for i, original := range wantLines {
+			wantLines[i] = reverse(original)
+		}
+		want := strings.Join(wantLines, "\n")
+
+		mirror := Mirror(piece)
+		got := mirror.GameString()
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("Mirror.GameString() mismatch(-want +got):\n%s", diff)
+		}
 	}
 }

@@ -133,5 +133,6 @@ func BenchmarkScore(b *testing.B) {
 	}
 }
 
-func TestScorer(t *testing.T) {
+func TestScore(t *testing.T) {
+
 }

@@ -3,7 +3,6 @@ package bot
 
 import (
 	"bytes"
-	"container/list"
 	"encoding/gob"
 	"fmt"
 	"sort"
@@ -16,8 +15,10 @@ import (
 type Scorer struct {
 	// Store the sequences that will fail for each state.
 	inviable map[combo4.State]*tetris.SeqSet
-	// Store the size of each sequence set for each bag state.
+	// Store the size of each sequence set for each state.
 	sizes map[combo4.State]int
+	// Store the possible sequences of length 7 for each bag state
+	seq7 [255]*tetris.SeqSet
 }
 
 // NewScorer creates a new Scorer.
@@ -31,35 +32,15 @@ func NewScorer() *Scorer {
 
 // Score provides a score for how good a situation is.
 func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
-	if len(stateSet) == 0 {
-		return 0
-	}
-
-	// Try the states with the least failures first.
+	// Try the states with the least failures first to reduce the set.
 	states := stateSet.Slice()
 	sort.Slice(states, func(i, j int) bool { return s.sizes[states[i]] < s.sizes[states[j]] })
 
-	// Keep track of sequences that are inviable for every state.
-	inviableSeqs := list.New()
-	forEach7Seq(bagUsed, func(seq []tetris.Piece) {
-		if !s.inviable[states[0]].Contains(seq) {
-			return
-		}
-		cpy := make([]tetris.Piece, 7)
-		copy(cpy, seq)
-		inviableSeqs.PushBack(cpy)
-	})
-	for _, state := range states[1:] {
-		inviable := s.inviable[state]
-		for e := inviableSeqs.Front(); e != nil; {
-			next := e.Next()
-			if !inviable.Contains(e.Value.([]tetris.Piece)) {
-				inviableSeqs.Remove(e)
-			}
-			e = next
-		}
+	inviableForAll := s.seq7[bagUsed]
+	for _, state := range states {
+		inviableForAll = inviableForAll.Intersection(s.inviable[state])
 	}
-	return 5040 - inviableSeqs.Len()
+	return 5040 - inviableForAll.Size(7)
 }
 
 func continuousNFAAndStates() (*combo4.NFA, []combo4.State) {
@@ -83,15 +64,29 @@ func continuousNFAAndStates() (*combo4.NFA, []combo4.State) {
 	return nfa, states
 }
 
-// genInviable generates the inviable map from scratch.
-func genInviable() map[combo4.State]*tetris.SeqSet {
-	nfa, states := continuousNFAAndStates()
+// genScorer can be used to generate a new Scorer without the raw bytes.
+func genScorer() *Scorer {
+	s := &Scorer{}
 
-	inviable := make(map[combo4.State]*tetris.SeqSet)
+	s.inviable = make(map[combo4.State]*tetris.SeqSet)
+	nfa, states := continuousNFAAndStates()
 	for _, state := range states {
-		inviable[state] = genInviableSeqs(nfa, state)
+		s.inviable[state] = genInviableSeqs(nfa, state)
 	}
-	return inviable
+
+	s.sizes = make(map[combo4.State]int, len(s.inviable))
+	for state, seqSet := range s.inviable {
+		s.sizes[state] = seqSet.Size(7)
+	}
+
+	for _, bag := range allBags() {
+		seqs := new(tetris.SeqSet)
+		forEach7Seq(bag, func(seq []tetris.Piece) {
+			seqs.AddPrefix(seq)
+		})
+		s.seq7[bag] = seqs
+	}
+	return s
 }
 
 // allBags returns a list of all possible bag states.
@@ -166,17 +161,15 @@ func (s *Scorer) GobDecode(b []byte) error {
 	buf := new(bytes.Buffer)
 	buf.Write(b) // Always returns nil.
 	decoder := gob.NewDecoder(buf)
-	var inviable map[combo4.State]*tetris.SeqSet
-	if err := decoder.Decode(&inviable); err != nil {
-		return fmt.Errorf("gob.Decode: %v", err)
+	if err := decoder.Decode(&s.inviable); err != nil {
+		return fmt.Errorf("gob.Decode(inviable): %v", err)
 	}
-	s.inviable = inviable
-
-	s.sizes = make(map[combo4.State]int, len(inviable))
-	for state, seqSet := range inviable {
-		s.sizes[state] = seqSet.Size(7)
+	if err := decoder.Decode(&s.sizes); err != nil {
+		return fmt.Errorf("gob.Decode(sizes): %v", err)
 	}
-
+	if err := decoder.Decode(&s.seq7); err != nil {
+		return fmt.Errorf("gob.Decode(seq7): %v", err)
+	}
 	return nil
 }
 
@@ -185,7 +178,13 @@ func (s *Scorer) GobEncode() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	encoder := gob.NewEncoder(buf)
 	if err := encoder.Encode(&s.inviable); err != nil {
-		return nil, fmt.Errorf("encoder.Encode: %v", err)
+		return nil, fmt.Errorf("encoder.Encode(inviable): %v", err)
+	}
+	if err := encoder.Encode(&s.sizes); err != nil {
+		return nil, fmt.Errorf("encoder.Encode(sizes): %v", err)
+	}
+	if err := encoder.Encode(&s.seq7); err != nil {
+		return nil, fmt.Errorf("encoder.Encode(seq7): %v", err)
 	}
 	return buf.Bytes(), nil
 }

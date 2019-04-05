@@ -90,6 +90,41 @@ func TestSeqSetContains(t *testing.T) {
 	}
 }
 
+func TestPrefixes(t *testing.T) {
+	tests := []struct {
+		desc string
+		seqs [][]Piece
+	}{
+		{
+			desc: "Two seqs",
+			seqs: [][]Piece{
+				{S, S, S, T, T},
+				{I, J, O},
+			},
+		},
+		{
+			desc: "No seqs",
+			seqs: nil,
+		},
+		{
+			desc: "All seqs",
+			seqs: [][]Piece{{}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			set := new(SeqSet)
+			for _, seq := range test.seqs {
+				set.AddPrefix(seq)
+			}
+			got := set.Prefixes()
+			if !cmp.Equal(got, test.seqs) {
+				t.Errorf("Prefixes got %v, want %v", got, test.seqs)
+			}
+		})
+	}
+}
+
 func TestSeqSetEncodeDecode(t *testing.T) {
 	seqs := new(SeqSet)
 	seqs.AddPrefix([]Piece{I, J, O})
@@ -102,15 +137,9 @@ func TestSeqSetEncodeDecode(t *testing.T) {
 	if !got.Equals(seqs) {
 		t.Errorf("Encode->Decode does not equal original")
 	}
-	t.Run("Check GobDecode contains", func(t *testing.T) {
-		if !got.Contains([]Piece{I, J, O, Z, L}) {
-			t.Errorf("does not contains [I, J, O, Z, L] which has prefix [I, J, O]")
-		}
-		if got.Contains([]Piece{S, S, S, Z, L}) {
-			t.Errorf("contains [S, S, S, Z, L] which does not have [I, J, O]")
-		}
-	})
-
+	if !cmp.Equal(got.Prefixes(), seqs.Prefixes()) {
+		t.Errorf("Encode->Decode prefixes does not equal original got %v, want %v", got.Prefixes(), seqs.Prefixes())
+	}
 	bytes2, _ := got.GobEncode()
 	if !bytes.Equal(bytes1, bytes2) {
 		diff := cmp.Diff(bytes1, bytes2)
@@ -127,7 +156,7 @@ func TestSeqSetSize(t *testing.T) {
 		want   int
 	}{
 		{
-			desc: "Two sets",
+			desc: "Two sequences",
 			seqs: [][]Piece{
 				{I, J, O},
 				{S, S, S, T, T},
@@ -192,14 +221,16 @@ func TestSeqSetEquals(t *testing.T) {
 			want: true,
 		},
 		{
-			desc: "Not Equal",
-			seqs1: [][]Piece{
-				{I, J, O},
-			},
-			seqs2: [][]Piece{
-				{I, J, S},
-			},
-			want: false,
+			desc:  "Exact match",
+			seqs1: [][]Piece{{I, J, O}},
+			seqs2: [][]Piece{{I, J, O}},
+			want:  true,
+		},
+		{
+			desc:  "Not Equal",
+			seqs1: [][]Piece{{I, J, O}},
+			seqs2: [][]Piece{{I, J, S}},
+			want:  false,
 		},
 	}
 	for _, test := range tests {
@@ -216,6 +247,143 @@ func TestSeqSetEquals(t *testing.T) {
 
 			if got := set1.Equals(set2); got != test.want {
 				t.Errorf("got Equal = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestSeqSetIntersection(t *testing.T) {
+	tests := []struct {
+		desc  string
+		seqs1 [][]Piece
+		seqs2 [][]Piece
+		want  [][]Piece
+	}{
+		{
+			desc: "Strict subset",
+			seqs1: [][]Piece{
+				{I, J, O},
+			},
+			seqs2: [][]Piece{
+				{I, J, O, T},
+			},
+			want: [][]Piece{
+				{I, J, O, T},
+			},
+		},
+		{
+			desc: "Strict superset",
+			seqs1: [][]Piece{
+				{I, J, O, T},
+			},
+			seqs2: [][]Piece{
+				{I, J, O},
+			},
+			want: [][]Piece{
+				{I, J, O, T},
+			},
+		},
+		{
+			desc: "Partial overlap",
+			seqs1: [][]Piece{
+				{I, J, O},
+			},
+			seqs2: [][]Piece{
+				{I, Z, O},
+			},
+			want: nil,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			set1 := new(SeqSet)
+			for _, seq := range test.seqs1 {
+				set1.AddPrefix(seq)
+			}
+
+			set2 := new(SeqSet)
+			for _, seq := range test.seqs2 {
+				set2.AddPrefix(seq)
+			}
+
+			want := new(SeqSet)
+			for _, seq := range test.want {
+				want.AddPrefix(seq)
+			}
+
+			got := set1.Intersection(set2)
+			if !got.Equals(want) {
+				t.Errorf("Intersection() got %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestSeqSetUnion(t *testing.T) {
+	tests := []struct {
+		desc  string
+		seqs1 [][]Piece
+		seqs2 [][]Piece
+		want  [][]Piece
+	}{
+		{
+			desc: "Strict subset",
+			seqs1: [][]Piece{
+				{I, J, O},
+			},
+			seqs2: [][]Piece{
+				{I, J, O, T},
+			},
+			want: [][]Piece{
+				{I, J, O},
+			},
+		},
+		{
+			desc: "Strict superset",
+			seqs1: [][]Piece{
+				{I, J, O, T},
+			},
+			seqs2: [][]Piece{
+				{I, J, O},
+			},
+			want: [][]Piece{
+				{I, J, O},
+			},
+		},
+		{
+			desc: "Partial overlap",
+			seqs1: [][]Piece{
+				{I, J, O},
+			},
+			seqs2: [][]Piece{
+				{I, Z, O},
+			},
+			want: [][]Piece{
+				{I, J, O},
+				{I, Z, O},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			set1 := new(SeqSet)
+			for _, seq := range test.seqs1 {
+				set1.AddPrefix(seq)
+			}
+
+			set2 := new(SeqSet)
+			for _, seq := range test.seqs2 {
+				set2.AddPrefix(seq)
+			}
+
+			want := new(SeqSet)
+			for _, seq := range test.want {
+				want.AddPrefix(seq)
+			}
+
+			got := set1.Union(set2)
+			if !got.Equals(want) {
+				t.Errorf("Union() got %v, want %v", got, want)
 			}
 		})
 	}
