@@ -34,6 +34,7 @@ func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
 	if len(stateSet) == 0 {
 		return 0
 	}
+
 	// Try the states with the least failures first.
 	states := stateSet.Slice()
 	sort.Slice(states, func(i, j int) bool { return s.sizes[states[i]] < s.sizes[states[j]] })
@@ -61,9 +62,7 @@ func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
 	return 5040 - inviableSeqs.Len()
 }
 
-// genInviable generates the inviable map from scratch.
-// This function is generally not needed.
-func genInviable() map[combo4.State]*tetris.SeqSet {
+func continuousNFAAndStates() (*combo4.NFA, []combo4.State) {
 	moves := combo4.AllContinuousMoves()
 	nfa := combo4.NewNFA(moves)
 
@@ -81,6 +80,12 @@ func genInviable() map[combo4.State]*tetris.SeqSet {
 			})
 		}
 	}
+	return nfa, states
+}
+
+// genInviable generates the inviable map from scratch.
+func genInviable() map[combo4.State]*tetris.SeqSet {
+	nfa, states := continuousNFAAndStates()
 
 	inviable := make(map[combo4.State]*tetris.SeqSet)
 	for _, state := range states {
@@ -125,7 +130,7 @@ func genInviableSeqs(nfa *combo4.NFA, state combo4.State) *tetris.SeqSet {
 
 // forEach7Seq calls the do() func for each possible sequence of 7 pieces given
 // the state of the bag. An empty bag state represents that no pieces have been
-//  played.
+// played.
 func forEach7Seq(used tetris.PieceSet, do func(permutation []tetris.Piece)) {
 	unused := used.Inverted()
 	unusedLen := unused.Len()

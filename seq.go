@@ -72,14 +72,14 @@ func (seq Seq) Append(p Piece) (Seq, error) {
 // This can be useful for storing Sequences that fail since you know that all
 // sequences with that prefix will also fail.
 //
-// The empty struct is usable.
+// The nil pointer is usable.
 type SeqSet struct {
 	hasAllSeq  bool       // Whether all sequences are contained.
 	subSeqSets [7]*SeqSet // "map" from Piece to a SeqSet.
 }
 
-// hasAllSeqSet is used as a leaf node when possible.
-var hasAllSeqSet = &SeqSet{hasAllSeq: true}
+// ContainsAllSeqSet is a SeqSet that contains all sequences.
+var ContainsAllSeqSet = &SeqSet{hasAllSeq: true}
 
 // AddPrefix adds the prefix to the SeqSet.
 // AddPrefix panics if the prefix contains an EmptyPiece.
@@ -107,7 +107,7 @@ func (s *SeqSet) AddPrefix(prefix []Piece) {
 	}
 
 	lastPiece := prefix[len(prefix)-1]
-	cur.subSeqSets[lastPiece-1] = hasAllSeqSet
+	cur.subSeqSets[lastPiece-1] = ContainsAllSeqSet
 }
 
 // Contains return if the sequence is contained in the SeqSet.
@@ -124,6 +124,52 @@ func (s *SeqSet) Contains(sequence []Piece) bool {
 	}
 	sub := s.subSeqSets[sequence[0]-1]
 	return sub.Contains(sequence[1:])
+}
+
+// Union returns the union of this SeqSet and another.
+// The results of Union are invalid if either SeqSet is modified.
+func (s *SeqSet) Union(other *SeqSet) *SeqSet {
+	if s == nil {
+		return other
+	}
+	if other == nil {
+		return s
+	}
+	if s.hasAllSeq || other.hasAllSeq {
+		return ContainsAllSeqSet
+	}
+	union := &SeqSet{}
+	for i := range union.subSeqSets {
+		union.subSeqSets[i] = s.subSeqSets[i].Union(other.subSeqSets[i])
+	}
+	return union
+}
+
+// Intersection returns the intersecion of this SeqSet and another.
+// The results of Intersection are invalid if either SeqSet is modified.
+func (s *SeqSet) Intersection(other *SeqSet) *SeqSet {
+	if s == nil || other == nil {
+		return nil
+	}
+	if s.hasAllSeq {
+		return other
+	}
+	if other.hasAllSeq {
+		return s
+	}
+	intersection := &SeqSet{}
+	var hasSubSeq bool
+	for i := range intersection.subSeqSets {
+		subInter := s.subSeqSets[i].Intersection(other.subSeqSets[i])
+		if subInter != nil {
+			intersection.subSeqSets[i] = subInter
+			hasSubSeq = true
+		}
+	}
+	if hasSubSeq {
+		return intersection
+	}
+	return nil
 }
 
 // Size returns the total number of sequences of a given length in the SeqSet.
@@ -196,7 +242,7 @@ func decodeFromBuffer(buf *bytes.Buffer) (*SeqSet, error) {
 		return nil, err
 	}
 	if hasAllSeq := b&(1<<7) != 0; hasAllSeq {
-		return hasAllSeqSet, nil
+		return ContainsAllSeqSet, nil
 	}
 
 	s := new(SeqSet)

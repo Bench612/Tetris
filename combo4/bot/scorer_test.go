@@ -2,6 +2,7 @@ package bot
 
 import (
 	"bytes"
+	"math/rand"
 	"testing"
 	"tetris"
 	"tetris/combo4"
@@ -120,11 +121,12 @@ func BenchmarkNewScorer(b *testing.B) {
 
 func BenchmarkScore(b *testing.B) {
 	s := NewScorer()
-	set := combo4.NewStateSet(
-		combo4.State{Field: combo4.LeftI},
-		combo4.State{Field: combo4.LeftZ},
-		combo4.State{Field: combo4.RightI},
-	)
+	_, states := continuousNFAAndStates()
+	set := combo4.NewStateSet()
+	for len(set) < 50 {
+		randIdx := rand.Intn(len(states))
+		set[states[randIdx]] = true
+	}
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		s.Score(set, tetris.NewPieceSet(tetris.I, tetris.J))
