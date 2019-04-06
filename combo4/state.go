@@ -45,9 +45,9 @@ func (set StateSet) Slice() []State {
 // EndStates returns a set of end states given a set of
 // initial/current states and pieces to consume. EndStates
 // returns nil if it not possible to consume all pieces.
-func (nfa *NFA) EndStates(initial State, pieces ...tetris.Piece) StateSet {
+func (nfa *NFA) EndStates(initial State, pieces []tetris.Piece) StateSet {
 	set := map[State]bool{initial: true}
-	endStates, unconsumed := nfa.TryConsume(set, pieces...)
+	endStates, unconsumed := nfa.TryConsume(set, pieces)
 	if len(unconsumed) == 0 {
 		return endStates
 	}
@@ -65,7 +65,7 @@ func (nfa *NFA) NextStates(initial State, piece tetris.Piece) []State {
 // states and pieces to consume. If there are pieces that cannot be consumed,
 // EndStates also returns the unconsumed pieces and the final states before
 // that.
-func (nfa *NFA) TryConsume(initial StateSet, pieces ...tetris.Piece) (StateSet, []tetris.Piece) {
+func (nfa *NFA) TryConsume(initial StateSet, pieces []tetris.Piece) (StateSet, []tetris.Piece) {
 	cur := make(map[State]bool)
 	for state, ok := range initial {
 		cur[state] = ok

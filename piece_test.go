@@ -1,44 +1,11 @@
 package tetris
 
 import (
-	"math/rand"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 )
-
-func BenchmarkPieceSetToSlice(b *testing.B) {
-	inputs := make([]PieceSet, b.N)
-	for n := 0; n < b.N; n++ {
-		inputs[n] = PieceSet(rand.Int31())
-	}
-	b.ResetTimer()
-
-	totalLengths := 0
-	for n := 0; n < b.N; n++ {
-		totalLengths += len(inputs[n].ToSlice())
-	}
-	b.Logf("Average length is %.2f in %d tries", float64(totalLengths)/float64(b.N), b.N)
-}
-
-func BenchmarkSeq(b *testing.B) {
-	inputs := make([][]Piece, b.N)
-	for n := 0; n < b.N; n++ {
-		inputs[n] = RandPieces(7)
-	}
-	b.ResetTimer()
-
-	totalLengths := 0
-	for n := 0; n < b.N; n++ {
-		seq, err := NewSeq(inputs[n])
-		if err != nil {
-			b.Errorf("NewSeq failed: %v", err)
-		}
-		totalLengths += len(seq.ToSlice())
-	}
-	b.Logf("Average length is %.2f in %d tries", float64(totalLengths)/float64(b.N), b.N)
-}
 
 func TestToSlice(t *testing.T) {
 	tests := []struct {

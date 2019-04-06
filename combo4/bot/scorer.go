@@ -40,6 +40,7 @@ func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
 	for _, state := range states {
 		inviableForAll = inviableForAll.Intersection(s.inviable[state])
 	}
+	// Each prefix will be length 7 so the size is also the number of sequences.
 	return 5040 - inviableForAll.Size(7)
 }
 
@@ -113,7 +114,7 @@ func genInviableSeqs(nfa *combo4.NFA, state combo4.State) *tetris.SeqSet {
 			if inviable.Contains(perm) {
 				return
 			}
-			_, unconsumed := nfa.TryConsume(combo4.NewStateSet(state), perm...)
+			_, unconsumed := nfa.TryConsume(combo4.NewStateSet(state), perm)
 			if len(unconsumed) != 0 {
 				prefixLen := len(perm) - len(unconsumed) + 1
 				inviable.AddPrefix(perm[:prefixLen])

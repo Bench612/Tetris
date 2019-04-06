@@ -2,68 +2,8 @@ package tetris
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 )
-
-// Seq represents a sequence of 7 or fewer pieces.
-// Seq can be used as a map key. A seq cannot contain
-// empty pieces.
-type Seq struct {
-	encoding uint32
-	len      uint8
-}
-
-// NewSeq returns a Seq or an error if the length of the slice
-// is over 7 or contains empty pieces.
-func NewSeq(pieces []Piece) (Seq, error) {
-	if len(pieces) > 7 {
-		return Seq{}, errors.New("len(pieces) must be 7 or less")
-	}
-	var encoding uint32
-	for idx, p := range pieces {
-		if p == EmptyPiece {
-			return Seq{}, errors.New("Seq cannot contain EmptyPiece")
-		}
-		encoding += uint32(p) << (4 * uint32(idx))
-	}
-	return Seq{encoding, uint8(len(pieces))}, nil
-}
-
-// MustSeq returns a new Seq and panics if the slice is over
-// 7 in length.
-func MustSeq(p []Piece) Seq {
-	seq, err := NewSeq(p)
-	if err != nil {
-		panic(fmt.Sprintf("NewSeq failed: %v", err))
-	}
-	return seq
-}
-
-// ToSlice converts a Seq into a []Piece.
-func (seq Seq) ToSlice() []Piece {
-	slice := make([]Piece, seq.len)
-	for idx := uint8(0); idx < seq.len; idx++ {
-		shift := 4 * uint32(idx)
-		slice[idx] = Piece((seq.encoding >> shift) & 15)
-	}
-	return slice
-}
-
-func (seq Seq) String() string {
-	return fmt.Sprintf("%v", seq.ToSlice())
-}
-
-// Append returns a new Seq with the piece appended.
-func (seq Seq) Append(p Piece) (Seq, error) {
-	if seq.len >= 7 {
-		return Seq{}, errors.New("Seq is already at max capacity")
-	}
-	return Seq{
-		encoding: seq.encoding + uint32(p)<<(4*uint32(seq.len)),
-		len:      seq.len + 1,
-	}, nil
-}
 
 // SeqSet represents a set of sequences.
 //
@@ -75,7 +15,7 @@ func (seq Seq) Append(p Piece) (Seq, error) {
 // The nil pointer is usable but cannot be appended to.
 type SeqSet struct {
 	hasAllSeq  bool       // Whether all sequences are contained.
-	subSeqSets [7]*SeqSet // "map" from Piece to a SeqSet.
+	subSeqSets [7]*SeqSet // "map" from (Piece-1) to a SeqSet.
 }
 
 // ContainsAllSeqSet is a SeqSet that contains all sequences.

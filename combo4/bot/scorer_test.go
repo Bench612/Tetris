@@ -35,12 +35,13 @@ func TestForEach7Seq(t *testing.T) {
 		t.Run(test.desc, func(t *testing.T) {
 			// Use t.Fatal checks to prevent spamming the error logs.
 			t.Run("Basic checks", func(t *testing.T) {
-				seen := make(map[tetris.Seq]bool)
+				seen := make(map[[7]tetris.Piece]bool)
 				forEach7Seq(test.bag, func(perm []tetris.Piece) {
 					if len(perm) != 7 {
 						t.Fatalf("%v: expected 7 elements in permuation", perm)
 					}
-					seq := tetris.MustSeq(perm)
+					var seq [7]tetris.Piece
+					copy(seq[:], perm)
 					if seen[seq] {
 						t.Fatalf("%v: permutation is repeated", perm)
 					}
@@ -134,5 +135,37 @@ func BenchmarkScore(b *testing.B) {
 }
 
 func TestScore(t *testing.T) {
+	tests := []struct {
+		desc   string
+		states combo4.StateSet
+		bag    tetris.PieceSet
+	}{
+		{
+			desc:   "One state, empty bag",
+			states: combo4.NewStateSet(combo4.State{Field: combo4.LeftI}),
+		},
+		{
+			desc: "Two states, I,J bag",
+			states: combo4.NewStateSet(
+				combo4.State{Field: combo4.LeftI, Hold: tetris.J},
+				combo4.State{Field: combo4.RightI, Hold: tetris.I}),
+			bag: tetris.NewPieceSet(tetris.I, tetris.J),
+		},
+	}
+	s := NewScorer()
+	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			want := 0
+			forEach7Seq(test.bag, func(seq []tetris.Piece) {
+				if _, unconsumed := nfa.TryConsume(test.states, seq); len(unconsumed) == 0 {
+					want++
+				}
+			})
 
+			if got := s.Score(test.states, test.bag); got != want {
+				t.Errorf("got Score()=%d, want %d", got, want)
+			}
+		})
+	}
 }

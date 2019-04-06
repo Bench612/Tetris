@@ -101,7 +101,7 @@ func RandPieces(length int) []Piece {
 }
 
 // PieceSet represents a set of pieces. Duplicates and EmptyPieces are not recorded.
-// The empty value is represents no pieces.
+// The empty value is usable.
 type PieceSet uint8
 
 // NewPieceSet creates a new PieceSet from the specified Pieces.

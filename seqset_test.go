@@ -7,49 +7,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-func TestNewSeq(t *testing.T) {
-	tests := []struct {
-		desc   string
-		pieces []Piece
-	}{
-		{
-			desc:   "Three pieces",
-			pieces: []Piece{I, L, O},
-		},
-		{
-			desc:   "7  pieces",
-			pieces: []Piece{I, L, O, S, J, S, I},
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.desc, func(t *testing.T) {
-			seq, err := NewSeq(test.pieces)
-			if err != nil {
-				t.Fatalf("NewSeq failed: %v", err)
-			}
-			got := seq.ToSlice()
-			if diff := cmp.Diff(test.pieces, got); diff != "" {
-				t.Errorf("ToSlice() mismatch(-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestSeqAppend(t *testing.T) {
-	var seq Seq
-	want := []Piece{S, O}
-	for _, p := range want {
-		var err error
-		seq, err = seq.Append(p)
-		if err != nil {
-			t.Fatalf("Append(%s) failed", p)
-		}
-	}
-	if diff := cmp.Diff(MustSeq(want).String(), seq.String()); diff != "" {
-		t.Errorf("sequence mismatch(-want +got):\n%s", diff)
-	}
-}
-
 func TestSeqSetContains(t *testing.T) {
 	set := new(SeqSet)
 	set.AddPrefix([]Piece{I, J, O})
