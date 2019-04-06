@@ -156,7 +156,9 @@ func TestScore(t *testing.T) {
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			want := 0
+			t.Parallel()
+
+			var want int32
 			forEach7Seq(test.bag, func(seq []tetris.Piece) {
 				if _, unconsumed := nfa.TryConsume(test.states, seq); len(unconsumed) == 0 {
 					want++

@@ -1,4 +1,4 @@
-// Package bot creates a program to play 4 wide combos.
+// Package bot makes decisions on playing to play 4 wide combos.
 package bot
 
 import (
@@ -31,7 +31,7 @@ func NewScorer() *Scorer {
 }
 
 // Score provides a score for how good a situation is.
-func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
+func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int32 {
 	// Try the states with the least failures first to reduce the set.
 	states := stateSet.Slice()
 	sort.Slice(states, func(i, j int) bool { return s.sizes[states[i]] < s.sizes[states[j]] })
@@ -41,7 +41,7 @@ func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
 		inviableForAll = inviableForAll.Intersection(s.inviable[state])
 	}
 	// Each prefix will be length 7 so the size is also the number of sequences.
-	return 5040 - inviableForAll.Size(7)
+	return 5040 - int32(inviableForAll.Size(7))
 }
 
 func continuousNFAAndStates() (*combo4.NFA, []combo4.State) {

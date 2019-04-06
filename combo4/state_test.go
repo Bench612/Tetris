@@ -10,9 +10,12 @@ import (
 func BenchmarkNFA7(b *testing.B) {
 	benchmarkNFA(b, 7)
 }
+func BenchmarkNFA20(b *testing.B) {
+	benchmarkNFA(b, 20)
+}
 
-func BenchmarkNFA50(b *testing.B) {
-	benchmarkNFA(b, 50)
+func BenchmarkNFA400(b *testing.B) {
+	benchmarkNFA(b, 400)
 }
 
 func BenchmarkNFA700(b *testing.B) {
