@@ -112,22 +112,27 @@ func TestEncodeDecode(t *testing.T) {
 	}
 }
 
-var scorerBenchmark *Scorer
-
 func BenchmarkNewScorer(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		scorerBenchmark = NewScorer()
+		_ = NewScorer()
 	}
 }
 
 func BenchmarkScore(b *testing.B) {
-	s := NewScorer()
-	_, states := continuousNFAAndStates()
+	// Pick a random set of 50 states.
+	stateSet := combo4.NewNFA(combo4.AllContinuousMoves()).States()
+	states := make([]combo4.State, 0, len(stateSet))
+	for s := range stateSet {
+		states = append(states, s)
+	}
 	set := combo4.NewStateSet()
 	for len(set) < 50 {
 		randIdx := rand.Intn(len(states))
 		set[states[randIdx]] = true
 	}
+
+	s := NewScorer()
+
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		s.Score(set, tetris.NewPieceSet(tetris.I, tetris.J))
@@ -160,10 +165,11 @@ func TestScore(t *testing.T) {
 
 			var want int32
 			forEach7Seq(test.bag, func(seq []tetris.Piece) {
-				if _, unconsumed := nfa.TryConsume(test.states, seq); len(unconsumed) == 0 {
+				if _, consumed := nfa.EndStates(test.states, seq); consumed == 7 {
 					want++
 				}
 			})
+			want = want<<10 + int32(len(test.states))
 
 			if got := s.Score(test.states, test.bag); got != want {
 				t.Errorf("got Score()=%d, want %d", got, want)

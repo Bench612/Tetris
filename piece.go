@@ -24,6 +24,37 @@ const (
 // NonemptyPieces is an ordered array of non-empty pieces.
 var NonemptyPieces = [7]Piece{T, L, J, S, Z, O, I}
 
+// PieceFromRune converts a rune to a Piece or returns
+// EmptyPiece if the rune is not recognized.
+func PieceFromRune(c rune) Piece {
+	switch c {
+	case 'T', 't':
+		return T
+	case 'L', 'l':
+		return L
+	case 'J', 'j':
+		return J
+	case 'S', 's':
+		return S
+	case 'Z', 'z':
+		return Z
+	case 'O', 'o':
+		return O
+	case 'I', 'i':
+		return I
+	}
+	return EmptyPiece
+}
+
+// SeqFromStr returns a slice of Pieces from a string.
+func SeqFromStr(s string) []Piece {
+	pieces := make([]Piece, 0, len(s))
+	for _, r := range s {
+		pieces = append(pieces, PieceFromRune(r))
+	}
+	return pieces
+}
+
 func (p Piece) String() string {
 	switch p {
 	case EmptyPiece:

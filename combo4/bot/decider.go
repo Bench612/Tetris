@@ -1,7 +1,6 @@
 package bot
 
 import (
-	"errors"
 	"math"
 	"tetris"
 	"tetris/combo4"
@@ -22,45 +21,61 @@ func NewDecider() *Decider {
 }
 
 type scoreTuple struct {
-	score     int32
-	numStates int
-	state     combo4.State
+	// The state that this score pertains to.
+	state combo4.State
+
+	// Components of the score orderd by importance.
+	consumedPieces int
+	score          int32
 }
 
-// NextState returns the best possible next state or an error if
-// there is no possible next state.
-func (d *Decider) NextState(initial combo4.State, queue []tetris.Piece, endBagUsed tetris.PieceSet) (combo4.State, error) {
-	if len(queue) == 0 {
-		return combo4.State{}, errors.New("queue must have at least one element")
+func (s scoreTuple) GreaterThan(other scoreTuple) bool {
+	if s.consumedPieces > other.consumedPieces {
+		return true
+	}
+	if s.consumedPieces < other.consumedPieces {
+		return false
+	}
+	return s.score > other.score
+}
+
+// NextState returns the "best" possible next state or nil if there are no
+// possible moves.
+func (d *Decider) NextState(initial combo4.State, current tetris.Piece, next []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
+	choices := d.nfa.NextStates(initial, current)
+	if len(choices) == 0 {
+		return nil
 	}
 
-	possible := d.nfa.NextStates(initial, queue[0])
-	if len(possible) == 0 {
-		return combo4.State{}, errors.New("no possible moves")
-	}
-	remainingQueue := queue[1:]
-
-	scores := make(chan scoreTuple, len(possible))
-	for _, possibility := range possible {
-		possibility := possibility // Capture range variable.
+	scores := make(chan scoreTuple, len(choices))
+	for _, choice := range choices {
+		choice := choice // Capture range variable.
 		go func() {
-			endStates := d.nfa.EndStates(possibility, remainingQueue)
+			endStates, consumed := d.nfa.EndStates(combo4.NewStateSet(choice), next)
+			if consumed == len(next) {
+				scores <- scoreTuple{
+					state:          choice,
+					consumedPieces: consumed,
+					score:          d.scorer.Score(endStates, endBagUsed),
+				}
+				return
+			}
 			scores <- scoreTuple{
-				score:     d.scorer.Score(endStates, endBagUsed),
-				numStates: len(endStates),
-				state:     possibility,
+				state:          choice,
+				consumedPieces: consumed,
 			}
 		}()
 	}
 
 	best := scoreTuple{score: math.MinInt32}
-	for _ = range possible {
+	for _ = range choices {
 		pair := <-scores
-		if pair.score > best.score || (pair.score == best.score && pair.numStates > best.numStates) {
+		if pair.GreaterThan(best) {
 			best = pair
 		}
 	}
-	return best.state, nil
+
+	return &best.state
 }
 
 // StartGame returns a channel that outputs the next state and then an
@@ -69,43 +84,47 @@ func (d *Decider) NextState(initial combo4.State, queue []tetris.Piece, endBagUs
 //
 // StartGame assumes there is no piece held and the game is starting with no
 // pieces played yet (starting with an empty bag).
-func (d *Decider) StartGame(initial combo4.Field4x4, first tetris.Piece, next []tetris.Piece, input chan tetris.Piece) chan *combo4.State {
+//
+// StartGame panics if an impossible piece is added to the input channel.
+func (d *Decider) StartGame(initial combo4.Field4x4, current tetris.Piece, next []tetris.Piece, input chan tetris.Piece) chan *combo4.State {
 	state := &combo4.State{Field: initial}
-	queue := append([]tetris.Piece{first}, next...)
-	bag := tetris.NewPieceSet(queue...)
+	bag := tetris.NewPieceSet(next...).Add(current)
 
 	output := make(chan *combo4.State, len(input))
-	defer close(output)
-
-	getNext := func() *combo4.State {
-		if state == nil {
-			return nil
-		}
-		next, err := d.NextState(*state, queue, bag)
-		if err != nil {
-			return nil
-		}
-		return &next
-	}
-
 	go func() {
+		defer close(output)
+
 		// Output the first move.
-		next := getNext()
-		output <- next
-		state = next
+		state := d.NextState(*state, current, next, bag)
+		output <- state
 
 		for p := range input {
-			if bag.Len() == 7 {
-				bag = p.PieceSet()
-			} else {
-				bag = bag.Add(p)
+			if state == nil {
+				output <- nil
+				continue
 			}
 
-			queue = append([]tetris.Piece{p}, queue[1:]...)
+			// Shift next and the current piece.
+			if len(next) == 0 {
+				current = p
+			} else {
+				current = next[0]
 
-			next := getNext()
-			output <- next
-			state = next
+				copy(next, next[1:])
+				next[len(next)-1] = p
+			}
+
+			// Update the bag.
+			if bag.Len() == 7 {
+				bag = 0
+			}
+			if bag.Contains(p) {
+				panic("impossible piece for bag state" + p.String())
+			}
+			bag = bag.Add(p)
+
+			state = d.NextState(*state, current, next, bag)
+			output <- state
 		}
 	}()
 

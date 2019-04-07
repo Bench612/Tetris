@@ -1,6 +1,7 @@
 package combo4
 
 import (
+	"fmt"
 	"tetris"
 )
 
@@ -9,15 +10,12 @@ type State struct {
 	Field Field4x4
 	// The piece being held. Possibly the EmptyPiece.
 	Hold tetris.Piece
+	// Whether the hold piece can be swapped or not.
+	SwapRestricted bool
 }
 
-// NFA represents a non-determinstic finite automina with some differences.
-// All states are considered "final" and there is no "initial" state.
-// NFA is safe for concurrent use.
-type NFA struct {
-	// trans contains possible transitions in the NFA.
-	// Usage: trans[piece][state] where piece is the next piece from the queue.
-	trans [8]map[State][]State
+func (s State) String() string {
+	return fmt.Sprintf("Hold:\n%s\nField:\n%s", s.Hold.GameString(), s.Field)
 }
 
 // StateSet represents a set of States.
@@ -32,26 +30,13 @@ func NewStateSet(states ...State) StateSet {
 	return set
 }
 
-// Slice returns a slice of the states in the set.
-// The order of the slice is not deterministic.
-func (set StateSet) Slice() []State {
-	slice := make([]State, 0, len(set))
-	for s := range set {
-		slice = append(slice, s)
-	}
-	return slice
-}
-
-// EndStates returns a set of end states given a set of
-// initial/current states and pieces to consume. EndStates
-// returns nil if it not possible to consume all pieces.
-func (nfa *NFA) EndStates(initial State, pieces []tetris.Piece) StateSet {
-	set := map[State]bool{initial: true}
-	endStates, unconsumed := nfa.TryConsume(set, pieces)
-	if len(unconsumed) == 0 {
-		return endStates
-	}
-	return nil
+// NFA represents a non-determinstic finite automina with some differences.
+// All states are considered "final" and there is no "initial" state.
+// NFA is safe for concurrent use.
+type NFA struct {
+	// trans contains possible transitions in the NFA.
+	// Usage: trans[piece][state] where piece is the next piece from the queue.
+	trans [8]map[State][]State
 }
 
 // NextStates returns the possible next states.
@@ -61,11 +46,24 @@ func (nfa *NFA) NextStates(initial State, piece tetris.Piece) []State {
 	return nfa.trans[piece][initial]
 }
 
-// TryConsume returns a set of end states given a set of initial/current
-// states and pieces to consume. If there are pieces that cannot be consumed,
-// EndStates also returns the unconsumed pieces and the final states before
-// that.
-func (nfa *NFA) TryConsume(initial StateSet, pieces []tetris.Piece) (StateSet, []tetris.Piece) {
+// States returns the set of States represented in the NFA.
+func (nfa *NFA) States() StateSet {
+	states := make(map[State]bool)
+	for _, m := range nfa.trans {
+		for input, outputs := range m {
+			states[input] = true
+			for _, output := range outputs {
+				states[output] = true
+			}
+		}
+	}
+	return states
+}
+
+// EndStates returns a set of end states given a set of initial/current
+// states and pieces to consume. EndStates also returns the number of consumed
+// pieces. The final state is returned if not all pieces were consumed.
+func (nfa *NFA) EndStates(initial StateSet, pieces []tetris.Piece) (StateSet, int) {
 	cur := make(map[State]bool)
 	for state, ok := range initial {
 		cur[state] = ok
@@ -80,14 +78,14 @@ func (nfa *NFA) TryConsume(initial StateSet, pieces []tetris.Piece) (StateSet, [
 			}
 		}
 		if len(next) == 0 {
-			return cur, pieces[idx:]
+			return cur, idx
 		}
 		cur, next = next, cur
 		for key := range next {
 			delete(next, key)
 		}
 	}
-	return cur, nil
+	return cur, len(pieces)
 }
 
 // NewNFA creates a new NFA. In general callers should reuse the same NFA
@@ -113,20 +111,43 @@ func NewNFA(movesList []Move) *NFA {
 		trans[int(piece)] = make(map[State][]State)
 	}
 
-	// Add all the transitions from no Hold piece to a Hold piece.
-	// WLOG we can assume that a piece is always held if there isn't one.
-	for f := range startFields {
-		for _, p := range tetris.NonemptyPieces {
-			init := State{f, tetris.EmptyPiece}
-			trans[p][init] = append(trans[p][init], State{Field: f, Hold: p})
+	// Add all the transitions from no Hold piece.
+	for field := range startFields {
+		for _, piece := range tetris.NonemptyPieces {
+			endStates := make([]State, 0, len(moves[field][piece])+1)
+			// Add transition from holding the piece.
+			endStates = append(endStates, State{Field: field, Hold: piece, SwapRestricted: true})
+			// Add transitions from playing the piece.
+			for _, endField := range moves[field][piece] {
+				endStates = append(endStates, State{Field: endField})
+			}
+
+			state := State{Field: field}
+			trans[piece][state] = append(trans[piece][state], endStates...)
 		}
 	}
 
-	// Add all other transitions from states with a Hold piece to
+	// Add all transitions from a SwapRestricted state.
+	for field := range startFields {
+		for _, hold := range tetris.NonemptyPieces {
+			state := State{Field: field, Hold: hold, SwapRestricted: true}
+			for _, piece := range tetris.NonemptyPieces {
+				endStates := make([]State, 0, len(moves[field][piece]))
+				// Add transitions from playing a piece.
+				for _, endField := range moves[field][piece] {
+					// The state is no longer SwapRestricted.
+					endStates = append(endStates, State{Field: endField, Hold: hold})
+				}
+				trans[piece][state] = append(trans[piece][state], endStates...)
+			}
+		}
+	}
+
+	// Add all other transitions from states with a swappable Hold piece to
 	// other states with a Hold piece.
 	for field := range startFields {
 		for _, hold := range tetris.NonemptyPieces {
-			state := State{field, hold}
+			state := State{Field: field, Hold: hold}
 			for _, piece := range tetris.NonemptyPieces {
 				endStates := make([]State, 0, len(moves[field][piece])+len(moves[field][hold]))
 				// Add all transitions that keep the Hold piece.

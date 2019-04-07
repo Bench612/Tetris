@@ -7,6 +7,21 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
+func TestPieceFromRune(t *testing.T) {
+	for _, p := range append([]Piece{EmptyPiece}, NonemptyPieces[:]...) {
+		if got := PieceFromRune(rune(p.String()[0])); got != p {
+			t.Errorf("PieceFromRune(%v) got %v", p, got)
+		}
+	}
+}
+
+func TestSeqFromString(t *testing.T) {
+	got := SeqFromStr("IJS")
+	if diff := cmp.Diff([]Piece{I, J, S}, got); diff != "" {
+		t.Errorf("SeqFromString() mismatch(-want +got):\n%s", diff)
+	}
+}
+
 func TestToSlice(t *testing.T) {
 	tests := []struct {
 		desc  string

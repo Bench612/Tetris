@@ -19,7 +19,7 @@ func BenchmarkNFA400(b *testing.B) {
 }
 
 func BenchmarkNFA700(b *testing.B) {
-	benchmarkNFA(b, 400)
+	benchmarkNFA(b, 700)
 }
 
 func benchmarkNFA(b *testing.B, sequenceLen int) {
@@ -33,24 +33,24 @@ func benchmarkNFA(b *testing.B, sequenceLen int) {
 	b.ResetTimer()
 	var completed int
 	for n := 0; n < b.N; n++ {
-		endStates := nfa.EndStates(State{Field: RightI}, inputs[n])
-		if len(endStates) != 0 {
+		_, consumed := nfa.EndStates(NewStateSet(State{Field: RightI}), inputs[n])
+		if consumed == len(inputs[n]) {
 			completed++
 		}
 	}
 	b.Logf("Number of end states with possibilities %.3f%% of %d tries", float64(completed)/float64(b.N), b.N)
 }
 
-func TestTryConsume(t *testing.T) {
+func TestEndStates(t *testing.T) {
 	nfa := NewNFA(AllContinuousMoves())
 	const X, o = true, false
 
 	tests := []struct {
-		desc           string
-		initState      State
-		pieces         []tetris.Piece
-		wantEndStates  StateSet
-		wantUnconsumed []tetris.Piece
+		desc          string
+		initState     State
+		pieces        []tetris.Piece
+		wantEndStates StateSet
+		wantConsumed  int
 	}{
 		{
 			desc:      "Should consume all",
@@ -58,8 +58,9 @@ func TestTryConsume(t *testing.T) {
 			pieces:    []tetris.Piece{tetris.S, tetris.O, tetris.L},
 			wantEndStates: NewStateSet(
 				State{
-					Field: NewField4x4([][4]bool{{X, X, X, o}}),
-					Hold:  tetris.L,
+					Field:          NewField4x4([][4]bool{{X, X, X, o}}),
+					Hold:           tetris.L,
+					SwapRestricted: true,
 				},
 				State{
 					Field: NewField4x4([][4]bool{
@@ -68,7 +69,14 @@ func TestTryConsume(t *testing.T) {
 					}),
 					Hold: tetris.O,
 				},
+				State{
+					Field: NewField4x4([][4]bool{
+						{o, o, X, X},
+						{o, o, o, X},
+					}),
+				},
 			),
+			wantConsumed: 3,
 		},
 		{
 			desc:      "Should leave one unconsumed",
@@ -76,21 +84,22 @@ func TestTryConsume(t *testing.T) {
 			pieces:    []tetris.Piece{tetris.J, tetris.O, tetris.S},
 			wantEndStates: NewStateSet(
 				State{
-					Field: NewField4x4([][4]bool{{o, X, X, X}}),
-					Hold:  tetris.O,
+					Field:          NewField4x4([][4]bool{{o, X, X, X}}),
+					Hold:           tetris.O,
+					SwapRestricted: true,
 				},
 			),
-			wantUnconsumed: []tetris.Piece{tetris.S},
+			wantConsumed: 2,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			gotEndStates, gotUnconsumed := nfa.TryConsume(NewStateSet(test.initState), test.pieces)
+			gotEndStates, gotConsumed := nfa.EndStates(NewStateSet(test.initState), test.pieces)
 			if diff := cmp.Diff(map[State]bool(test.wantEndStates), map[State]bool(gotEndStates)); diff != "" {
 				t.Errorf("end states mismatch(-want +got):\n%s", diff)
 			}
-			if diff := cmp.Diff(test.wantUnconsumed, gotUnconsumed); diff != "" {
-				t.Errorf("unconsumed pieces mismatch(-want +got):\n%s", diff)
+			if test.wantConsumed != gotConsumed {
+				t.Errorf("consumed pieces = %d, want %d", gotConsumed, test.wantConsumed)
 			}
 		})
 	}

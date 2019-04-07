@@ -8,51 +8,47 @@ import (
 )
 
 func BenchmarkNextState(b *testing.B) {
+	stateSet := combo4.NewNFA(combo4.AllContinuousMoves()).States()
+	states := make([]combo4.State, 0, len(stateSet))
+	for s := range stateSet {
+		states = append(states, s)
+	}
+
 	d := NewDecider()
-	_, states := continuousNFAAndStates()
+
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		randState := states[rand.Intn(len(states))]
 		queue := tetris.RandPieces(7)
 		var bag tetris.PieceSet
 
-		d.NextState(randState, queue, bag)
+		d.NextState(randState, queue[0], queue[1:], bag)
 	}
 }
 
-// Number of completed games 0.733% of 30 tries
-// Average pieces played 311.900
-func BenchmarkPlay400(b *testing.B) {
+func TestStartGameRatio(t *testing.T) {
+	const (
+		trials         = 100
+		piecesPerTrial = 100
+	)
+
+	rand.Seed(1)
 	d := NewDecider()
-	start := combo4.State{Field: combo4.RightI}
-	queues := make([][]tetris.Piece, b.N)
-	for i := 0; i < b.N; i++ {
-		queues[i] = tetris.RandPieces(408)
-	}
-	b.ResetTimer()
 
-	var totalMoves, lost int
-	for n := 0; n < b.N; n++ {
-		fullQueue := queues[n]
-		bag := tetris.NewPieceSet(fullQueue[:7]...)
-		state := start
-		for i := 0; i < len(fullQueue)-8; i++ {
-			queue := fullQueue[i : i+7]
-
-			var err error
-			state, err = d.NextState(state, queue, bag)
-			if err != nil {
-				lost++
+	var incomplete int
+	for t := 0; t < trials; t++ {
+		queue := tetris.RandPieces(piecesPerTrial)
+		input := make(chan tetris.Piece, 1)
+		output := d.StartGame(combo4.LeftI, queue[0], queue[1:7], input)
+		for _, p := range queue[7:] {
+			input <- p
+			if <-output == nil {
+				incomplete++
 				break
 			}
-			totalMoves++
-
-			if bag.Len() == 7 {
-				bag = 0
-			}
-			bag = bag.Add(fullQueue[i+7])
 		}
 	}
-	b.Logf("Number of completed games %.3f%% of %d tries", float64(b.N-lost)/float64(b.N), b.N)
-	b.Logf("Average pieces played %.3f", float64(totalMoves)/float64(b.N))
+	if ratio := 1 - float64(incomplete)/trials; ratio < 0.7 {
+		t.Errorf("Decider has win rate=%.2f, want at least 0.7", ratio)
+	}
 }
