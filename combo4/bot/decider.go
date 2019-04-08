@@ -1,7 +1,6 @@
 package bot
 
 import (
-	"math"
 	"tetris"
 	"tetris/combo4"
 )
@@ -26,10 +25,13 @@ type scoreTuple struct {
 
 	// Components of the score orderd by importance.
 	consumedPieces int
-	score          int32
+	score          int
 }
 
-func (s scoreTuple) GreaterThan(other scoreTuple) bool {
+func (s scoreTuple) GreaterThan(other *scoreTuple) bool {
+	if other == nil {
+		return true
+	}
 	if s.consumedPieces > other.consumedPieces {
 		return true
 	}
@@ -67,11 +69,10 @@ func (d *Decider) NextState(initial combo4.State, current tetris.Piece, next []t
 		}()
 	}
 
-	best := scoreTuple{score: math.MinInt32}
+	var best *scoreTuple
 	for _ = range choices {
-		pair := <-scores
-		if pair.GreaterThan(best) {
-			best = pair
+		if pair := <-scores; pair.GreaterThan(best) {
+			best = &pair
 		}
 	}
 

@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	score := bot.GenScorer()
+	score := bot.GenScorer(7)
 	bytes, err := score.GobEncode()
 	if err != nil {
 		fmt.Printf("encode failed: %v", err)

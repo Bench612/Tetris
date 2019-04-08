@@ -70,20 +70,6 @@ func TestForEach7Seq(t *testing.T) {
 	}
 }
 
-func TestAllBags(t *testing.T) {
-	bags := allBags()
-	seen := make(map[tetris.PieceSet]bool)
-	for _, b := range bags {
-		if seen[b] {
-			t.Errorf("bag %v is duplicated", b)
-		}
-		seen[b] = true
-	}
-	if len(bags) != 128 { // 2^7
-		t.Errorf("got %d bags, want 128", len(bags))
-	}
-}
-
 func TestEncodeDecode(t *testing.T) {
 	seqSet := new(tetris.SeqSet)
 	seqSet.AddPrefix(tetris.NonemptyPieces[:])
@@ -163,13 +149,13 @@ func TestScore(t *testing.T) {
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
-			var want int32
+			var inviable int
 			forEach7Seq(test.bag, func(seq []tetris.Piece) {
-				if _, consumed := nfa.EndStates(test.states, seq); consumed == 7 {
-					want++
+				if _, consumed := nfa.EndStates(test.states, seq); consumed != s.permLen {
+					inviable++
 				}
 			})
-			want = want<<10 + int32(len(test.states))
+			want := (-inviable)<<10 + len(test.states)
 
 			if got := s.Score(test.states, test.bag); got != want {
 				t.Errorf("got Score()=%d, want %d", got, want)

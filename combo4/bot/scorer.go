@@ -1,4 +1,4 @@
-// Package bot makes decisions on playing to play 4 wide combos.
+// Package bot makes decisions on playing 4 wide combos.
 package bot
 
 import (
@@ -11,17 +11,18 @@ import (
 )
 
 // Scorer gives scores for situtations based on the number of permutations of
-// length 7 that have a possible solution.
+// that have a possible solution.
 type Scorer struct {
-	// Store the permutations that will fail for each state.
+	// The length of permutations considered. A larger permLen leads to more
+	// accurate scores.
+	permLen int
+	// Store the permutations of permLen that will fail for each state.
 	inviable map[combo4.State]*tetris.SeqSet
-	// Store the size of each SeqSet for each state.
-	sizes map[combo4.State]int
-	// Store the possible permutations for each bag state
-	seq7 [255]*tetris.SeqSet
+	// Precompute the size of each inviable SeqSet for each state.
+	inviableSizes map[combo4.State]int
 }
 
-// NewScorer creates a new Scorer.
+// NewScorer creates a new Scorer based on permutations of length 7.
 func NewScorer() *Scorer {
 	s := &Scorer{}
 	if err := s.GobDecode(scorerGob); err != nil {
@@ -31,27 +32,29 @@ func NewScorer() *Scorer {
 }
 
 // Score provides a score for how good a situation is.
-func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int32 {
+// Higher scores are better.
+func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
 	// Try the states with the least failures first to reduce the set.
 	states := make([]combo4.State, 0, len(stateSet))
 	for s := range stateSet {
 		states = append(states, s)
 	}
-	sort.Slice(states, func(i, j int) bool { return s.sizes[states[i]] < s.sizes[states[j]] })
+	sort.Slice(states, func(i, j int) bool { return s.inviableSizes[states[i]] < s.inviableSizes[states[j]] })
 
-	inviableForAll := s.seq7[bagUsed]
+	inviableForAll := tetris.Permutations(bagUsed)
 	for _, state := range states {
 		inviableForAll = inviableForAll.Intersection(s.inviable[state])
 	}
-	// Each prefix will be length 7 so the size is also the number of sequences.
-	validSeqs := 5040 - int32(inviableForAll.Size(7))
-	// Tie break if the number of validSeqs are equal by the size of the state set.
-	return validSeqs<<10 + int32(len(stateSet))
+	// Score by the number of inviable sequences. Tie break by the number of states.
+	scoreMajor := (-inviableForAll.Size(s.permLen))
+	scoreMinor := len(stateSet)
+	// Shift the major score by 10 bits. This assumes the minor score is always less than 2^10.
+	return scoreMajor<<10 + scoreMinor
 }
 
 // GenScorer can be used to generate a new Scorer without the raw byte encoding.
 // Generally NewScorer() should be used.
-func GenScorer() *Scorer {
+func GenScorer(permutationLen int) *Scorer {
 	inviable := make(map[combo4.State]*tetris.SeqSet)
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 
@@ -76,52 +79,25 @@ func GenScorer() *Scorer {
 	}
 
 	return &Scorer{
-		inviable: inviable,
-		sizes:    genSizes(inviable),
-		seq7:     genSeq7(),
+		permLen:       permutationLen,
+		inviable:      inviable,
+		inviableSizes: genSizes(inviable, permutationLen),
 	}
 }
 
-func genSizes(inviable map[combo4.State]*tetris.SeqSet) map[combo4.State]int {
+func genSizes(inviable map[combo4.State]*tetris.SeqSet, permLen int) map[combo4.State]int {
 	sizes := make(map[combo4.State]int, len(inviable))
 	for state, seqSet := range inviable {
-		sizes[state] = seqSet.Size(7)
+		sizes[state] = seqSet.Size(permLen)
 	}
 	return sizes
-}
-
-func genSeq7() [255]*tetris.SeqSet {
-	var seq7 [255]*tetris.SeqSet
-	for _, bag := range allBags() {
-		seqs := new(tetris.SeqSet)
-		forEach7Seq(bag, func(seq []tetris.Piece) {
-			seqs.AddPrefix(seq)
-		})
-		seq7[bag] = seqs
-	}
-	return seq7
-}
-
-// allBags returns a list of all possible bag states.
-func allBags() []tetris.PieceSet {
-	bags := make([]tetris.PieceSet, 128) // 2^7
-	for idx := range bags {
-		var ps tetris.PieceSet
-		for pieceIdx, piece := range tetris.NonemptyPieces {
-			if idx&(1<<uint(pieceIdx)) != 0 {
-				ps = ps.Add(piece)
-			}
-		}
-		bags[idx] = ps
-	}
-	return bags
 }
 
 // genInviableSeqs generates the inviable sequences of length 7 for the given
 // state.
 func genInviableSeqs(nfa *combo4.NFA, state combo4.State) *tetris.SeqSet {
 	inviable := new(tetris.SeqSet)
-	for _, bag := range allBags() {
+	for _, bag := range tetris.AllPieceSets() {
 		forEach7Seq(bag, func(perm []tetris.Piece) {
 			if inviable.Contains(perm) {
 				return
@@ -172,15 +148,13 @@ func (s *Scorer) GobDecode(b []byte) error {
 	buf := new(bytes.Buffer)
 	buf.Write(b) // Always returns nil.
 	decoder := gob.NewDecoder(buf)
+	if err := decoder.Decode(&s.permLen); err != nil {
+		return fmt.Errorf("gob.Decode(permLen): %v", err)
+	}
 	if err := decoder.Decode(&s.inviable); err != nil {
 		return fmt.Errorf("gob.Decode(inviable): %v", err)
 	}
-	if err := decoder.Decode(&s.sizes); err != nil {
-		return fmt.Errorf("gob.Decode(sizes): %v", err)
-	}
-	if err := decoder.Decode(&s.seq7); err != nil {
-		return fmt.Errorf("gob.Decode(seq7): %v", err)
-	}
+	s.inviableSizes = genSizes(s.inviable, s.permLen)
 	return nil
 }
 
@@ -188,14 +162,11 @@ func (s *Scorer) GobDecode(b []byte) error {
 func (s *Scorer) GobEncode() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	encoder := gob.NewEncoder(buf)
+	if err := encoder.Encode(&s.permLen); err != nil {
+		return nil, fmt.Errorf("encoder.Encode(permLen): %v", err)
+	}
 	if err := encoder.Encode(&s.inviable); err != nil {
 		return nil, fmt.Errorf("encoder.Encode(inviable): %v", err)
-	}
-	if err := encoder.Encode(&s.sizes); err != nil {
-		return nil, fmt.Errorf("encoder.Encode(sizes): %v", err)
-	}
-	if err := encoder.Encode(&s.seq7); err != nil {
-		return nil, fmt.Errorf("encoder.Encode(seq7): %v", err)
 	}
 	return buf.Bytes(), nil
 }

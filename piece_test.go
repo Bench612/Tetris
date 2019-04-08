@@ -177,3 +177,18 @@ func TestMirror(t *testing.T) {
 		}
 	}
 }
+
+func TestAllPieceSets(t *testing.T) {
+	sets := AllPieceSets()
+	seen := make(map[PieceSet]bool)
+	for _, ps := range sets {
+		ps = NewPieceSet(ps.ToSlice()...)
+		if seen[ps] {
+			t.Errorf("PieceSet %v is duplicated", ps)
+		}
+		seen[ps] = true
+	}
+	if len(seen) != 128 { // 2^7
+		t.Errorf("got %d bags, want 128", len(seen))
+	}
+}

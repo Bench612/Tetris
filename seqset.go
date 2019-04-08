@@ -5,6 +5,25 @@ import (
 	"fmt"
 )
 
+func init() {
+	// Generate the permutations.
+	for _, bag := range AllPieceSets() {
+		bagIdx := bag
+		permutations[bagIdx].permBag = &bagIdx
+
+		// Full bag is equivalent to empty bag.
+		if bag.Len() == 7 {
+			bag = 0
+		}
+		for _, p := range NonemptyPieces {
+			if !bag.Contains(p) {
+				newBag := bag.Add(p)
+				permutations[bagIdx].subSeqSets[p-1] = &permutations[newBag]
+			}
+		}
+	}
+}
+
 // SeqSet represents a set of sequences.
 //
 // A SeqSet is defined by prefixes. For example, given a SeqSet with the
@@ -12,18 +31,40 @@ import (
 // This can be useful for storing sequences that fail since you know that all
 // sequences with that prefix will also fail.
 //
-// The nil pointer is usable but cannot be appended to.
+// The nil pointer is usable.
 type SeqSet struct {
 	hasAllSeq  bool       // Whether all sequences are contained.
 	subSeqSets [7]*SeqSet // "map" from (Piece-1) to a SeqSet.
+
+	// This is a special value that is only used for the global var
+	// "permutations". See the comment above the "permutations" variable.
+	permBag *PieceSet
 }
 
 // ContainsAllSeqSet is a SeqSet that contains all sequences.
 var ContainsAllSeqSet = &SeqSet{hasAllSeq: true}
 
+// permutations is a collection of special SeqSets from PieceSet->SeqSet.
+// Each SeqSet contains all possible permutations from the given bag state.
+// These SeqSets are special because
+// a) Only these SeqSets, SeqSets containing these, and copies can have cycles.
+// b) These SeqSets contain all Sequences along the traversal path.
+var permutations [255]SeqSet
+
+// Permutations returns a SeqSet that contains all sequences starting from the
+// given bag state assuming a 7 bag randomizer.
+func Permutations(bagUsed PieceSet) *SeqSet {
+	return &permutations[bagUsed]
+}
+
 // AddPrefix adds the prefix to the SeqSet.
-// AddPrefix panics if the prefix contains an EmptyPiece.
 func (s *SeqSet) AddPrefix(prefix []Piece) {
+	if s.hasAllSeq {
+		return
+	}
+	if s.permBag != nil {
+		panic("SeqSets from the Permutations func cannot be modified")
+	}
 	if len(prefix) == 0 {
 		s.hasAllSeq = true
 		// Zero out all the sub sequences sets which are now redundant.
@@ -32,25 +73,20 @@ func (s *SeqSet) AddPrefix(prefix []Piece) {
 		}
 		return
 	}
+	if prefix[0] == EmptyPiece {
+		panic("cannot add prefixes with EmptyPieces in them")
+	}
+	if len(prefix) == 1 {
+		s.subSeqSets[prefix[0]-1] = ContainsAllSeqSet
+		return
+	}
 
-	cur := s
-	for _, piece := range prefix[:len(prefix)-1] {
-		if cur.hasAllSeq {
-			return // This prefix is already included.
-		}
-		next := cur.subSeqSets[piece-1]
-		if next == nil {
-			next = new(SeqSet)
-			cur.subSeqSets[piece-1] = next
-		}
-		cur = next
+	next := s.subSeqSets[prefix[0]-1]
+	if next == nil {
+		next = new(SeqSet)
+		s.subSeqSets[prefix[0]-1] = next
 	}
-	if !cur.hasAllSeq {
-		lastPiece := prefix[len(prefix)-1]
-		// Use ContainsAllSeqSet as the leaf node to save space.
-		// This means we have to make sure leaf nodes are never modified.
-		cur.subSeqSets[lastPiece-1] = ContainsAllSeqSet
-	}
+	next.AddPrefix(prefix[1:])
 }
 
 // Contains returns if the sequence is contained in the SeqSet.
@@ -63,7 +99,8 @@ func (s *SeqSet) Contains(sequence []Piece) bool {
 		return true
 	}
 	if len(sequence) == 0 {
-		return false
+		// Permutations contain all sequences that dont lead to nil.
+		return s.permBag != nil
 	}
 	sub := s.subSeqSets[sequence[0]-1]
 	return sub.Contains(sequence[1:])
@@ -85,7 +122,7 @@ func (s *SeqSet) Prefixes() [][]Piece {
 // reversedPrefixes returns all prefixes in reverse. This is more efficient
 // because slices are better to append to instead of prepend.
 func (s *SeqSet) reversedPrefixes(depth int) [][]Piece {
-	if s == nil {
+	if s == nil || s.permBag != nil {
 		return nil
 	}
 	if s.hasAllSeq {
@@ -105,28 +142,16 @@ func (s *SeqSet) reversedPrefixes(depth int) [][]Piece {
 }
 
 func (s *SeqSet) String() string {
-	return fmt.Sprintf("{prefixes=%v}", s.Prefixes())
-}
-
-// Copy returns a deep copy of the SeqSet.
-func (s *SeqSet) Copy() *SeqSet {
-	if s == nil {
-		return nil
-	}
 	if s.hasAllSeq {
-		return ContainsAllSeqSet
+		return "{prefixes=all}"
 	}
-	copy := &SeqSet{}
-	for idx, original := range s.subSeqSets {
-		copy.subSeqSets[idx] = original.Copy()
-	}
-	return copy
+	return fmt.Sprintf("{prefixes=%v}", s.Prefixes())
 }
 
 // Union returns the union of this SeqSet and another.
 //
-// WARNING: The input and output SeqSets should not be modified after this.
-// Create a Copy of the inputs if you want to avoid this.
+// WARNING: The input and output SeqSets may have the same underlying data and
+// modifications to either have undefined behavior.
 func (s *SeqSet) Union(other *SeqSet) *SeqSet {
 	if s == nil {
 		return other
@@ -146,8 +171,8 @@ func (s *SeqSet) Union(other *SeqSet) *SeqSet {
 
 // Intersection returns the intersection of this SeqSet and another.
 //
-// WARNING: The input and output SeqSets should not be modified after this.
-// Create a Copy of the inputs if you want to avoid this.
+// WARNING: The input and output SeqSets may have the same underlying data and
+// modifications to either have undefined behavior.
 func (s *SeqSet) Intersection(other *SeqSet) *SeqSet {
 	if s == nil || other == nil {
 		return nil
@@ -177,6 +202,25 @@ func (s *SeqSet) Intersection(other *SeqSet) *SeqSet {
 func (s *SeqSet) Size(length int) int {
 	if s == nil {
 		return 0
+	}
+	if s.permBag != nil {
+		// Calculate the number of sequences by the choices at each step
+		// assuming a 7 bag randomizer.
+		choices := 7 - (*s.permBag).Len()
+		if choices == 0 {
+			choices = 7
+		}
+
+		prod := 1
+		for i := 0; i < length; i++ {
+			prod *= choices
+
+			choices--
+			if choices == 0 {
+				choices = 7
+			}
+		}
+		return prod
 	}
 	if length < 0 {
 		return 0
@@ -208,19 +252,26 @@ func (s *SeqSet) GobEncode() ([]byte, error) {
 }
 
 func (s SeqSet) encodeToBuffer(buf *bytes.Buffer) {
-	var b uint8
 	if s.hasAllSeq {
-		b |= 1 << 7
+		buf.WriteByte(128)
+		return
 	}
+
+	// If the SeqSet is a permutation.
+	if s.permBag != nil {
+		buf.WriteByte(255)
+		buf.WriteByte(byte(*s.permBag))
+		return
+	}
+
 	// Capture which indices are null.
+	var b uint8
 	for idx, sub := range s.subSeqSets {
 		if sub != nil {
 			b |= 1 << uint(idx)
 		}
 	}
 	buf.WriteByte(b) // Always returns nil
-
-	// Write all the sub buffers.
 	for _, sub := range s.subSeqSets {
 		if sub != nil {
 			sub.encodeToBuffer(buf)
@@ -232,12 +283,15 @@ func (s SeqSet) encodeToBuffer(buf *bytes.Buffer) {
 func (s *SeqSet) GobDecode(data []byte) error {
 	buf := new(bytes.Buffer)
 	buf.Write(data) // Always returns nil
+
 	s2, err := decodeFromBuffer(buf)
 	if err != nil {
 		return err
 	}
 	s.hasAllSeq = s2.hasAllSeq
 	s.subSeqSets = s2.subSeqSets
+	s.permBag = s2.permBag
+
 	return nil
 }
 
@@ -246,8 +300,17 @@ func decodeFromBuffer(buf *bytes.Buffer) (*SeqSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	if hasAllSeq := b&(1<<7) != 0; hasAllSeq {
+	if b == 128 {
 		return ContainsAllSeqSet, nil
+	}
+
+	// If the SeqSet is a permutation.
+	if b == 255 {
+		permBagByte, err := buf.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+		return &permutations[permBagByte], nil
 	}
 
 	s := new(SeqSet)

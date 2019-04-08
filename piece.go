@@ -190,3 +190,12 @@ func (ps PieceSet) Inverted() PieceSet {
 	// Invert and zero out the EmptyPiece.
 	return (ps ^ 255) &^ (1 << EmptyPiece)
 }
+
+// AllPieceSets returns a list of all possible piece sets.
+func AllPieceSets() []PieceSet {
+	sets := make([]PieceSet, 128)
+	for idx := range sets {
+		sets[idx] = PieceSet(idx << 1)
+	}
+	return sets
+}

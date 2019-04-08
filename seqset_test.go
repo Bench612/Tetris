@@ -83,26 +83,63 @@ func TestPrefixes(t *testing.T) {
 }
 
 func TestSeqSetEncodeDecode(t *testing.T) {
-	seqs := new(SeqSet)
-	seqs.AddPrefix([]Piece{I, J, O})
-	bytes1, _ := seqs.GobEncode()
+	ijo := new(SeqSet)
+	ijo.AddPrefix([]Piece{I, J, O})
 
-	got := &SeqSet{}
-	if err := got.GobDecode(bytes1); err != nil {
-		t.Fatalf("GobDecode failed: %v", err)
+	tests := []struct {
+		desc string
+		set  *SeqSet
+	}{
+		{
+			desc: "Simple SeqSet",
+			set:  ijo,
+		},
+		{
+			desc: "nil SeqSet",
+			set:  nil,
+		},
+		{
+			desc: "permutation SeqSet",
+			set:  Permutations(50),
+		},
 	}
-	if !got.Equals(seqs) {
-		t.Errorf("Encode->Decode does not equal original")
-	}
-	if !cmp.Equal(got.Prefixes(), seqs.Prefixes()) {
-		t.Errorf("Encode->Decode prefixes does not equal original got %v, want %v", got.Prefixes(), seqs.Prefixes())
-	}
-	bytes2, _ := got.GobEncode()
-	if !bytes.Equal(bytes1, bytes2) {
-		diff := cmp.Diff(bytes1, bytes2)
-		t.Errorf("Second GobEncoding is not equal to first (-bytes1 +bytes2)\n:%s", diff)
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			bytes1, _ := test.set.GobEncode()
+
+			got := new(SeqSet)
+			if err := got.GobDecode(bytes1); err != nil {
+				t.Fatalf("GobDecode failed: %v", err)
+			}
+			if !got.Equals(test.set) {
+				t.Errorf("Encode->Decode does not equal original")
+			}
+			if !cmp.Equal(got.Prefixes(), test.set.Prefixes()) {
+				t.Errorf("Encode->Decode prefixes does not equal original got %v, want %v", got.Prefixes(), test.set.Prefixes())
+			}
+			bytes2, _ := got.GobEncode()
+			if !bytes.Equal(bytes1, bytes2) {
+				diff := cmp.Diff(bytes1, bytes2)
+				t.Errorf("Second GobEncoding is not equal to first (-bytes1 +bytes2)\n:%s", diff)
+			}
+		})
 	}
 
+}
+
+func TestPermSize(t *testing.T) {
+	// Use Fatal errors to prevent spamming.
+	ps := NewPieceSet(T)
+	perm := Permutations(ps)
+	if got := perm.Size(7); got != 5040 {
+		t.Fatalf("%s: got Size(7) = %d, want 5040", ps, got)
+	}
+	if got := perm.Size(0); got != 1 {
+		t.Fatalf("%s: got Size(0) = %d, want 1", ps, got)
+	}
+	if got := perm.Size(1); got != 7-ps.Len() {
+		t.Fatalf("%s: got Size(1) = %d, want %d", ps, got, 7-ps.Len())
+	}
 }
 
 func TestSeqSetSize(t *testing.T) {
