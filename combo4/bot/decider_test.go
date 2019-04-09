@@ -8,13 +8,9 @@ import (
 )
 
 func BenchmarkNextState(b *testing.B) {
-	stateSet := combo4.NewNFA(combo4.AllContinuousMoves()).States()
-	states := make([]combo4.State, 0, len(stateSet))
-	for s := range stateSet {
-		states = append(states, s)
-	}
+	states := combo4.NewNFA(combo4.AllContinuousMoves()).States().Slice()
 
-	d := NewDecider()
+	d := NewDecider(NewNFAScorer(7))
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
@@ -33,7 +29,7 @@ func TestStartGameSucessRate(t *testing.T) {
 	)
 
 	rand.Seed(1)
-	d := NewDecider()
+	d := NewDecider(NewNFAScorer(7))
 
 	var incomplete int
 	for t := 0; t < trials; t++ {

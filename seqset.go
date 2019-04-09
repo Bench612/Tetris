@@ -43,15 +43,13 @@ type SeqSet struct {
 }
 
 // ContainsAllSeqSet is a special SeqSet that contains all sequences.
-var ContainsAllSeqSet = &SeqSet{}
+var ContainsAllSeqSet = new(SeqSet)
 
 // permutations is a collection of special SeqSets from PieceSet->SeqSet.
 // Each SeqSet contains all possible permutations from the given bag state.
-// These SeqSets are special because only these SeqSets, SeqSets containing these
-// have cycles.
-var (
-	permutations [255]SeqSet
-)
+// These SeqSets are special because only these SeqSets and SeqSets containing
+// these are cyclic. All other SeqSets are graphs.
+var permutations [255]SeqSet
 
 // Permutations returns a SeqSet that contains all sequences starting from the
 // given bag state assuming a 7 bag randomizer.

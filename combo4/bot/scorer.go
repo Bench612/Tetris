@@ -7,9 +7,24 @@ import (
 	"tetris/combo4"
 )
 
-// Scorer gives scores for situtations based on the number of permutations of
-// that have a possible solution.
-type Scorer struct {
+// Scorer scores a sitaution on how good it is.
+type Scorer interface {
+	// A higher score means the sitauation is better than other stateSets
+	// for the same bagUsed.
+	Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int
+}
+
+// ZeroScorer returns 0 for every score.
+type ZeroScorer struct{}
+
+// Score returns 0.
+func (*ZeroScorer) Score(combo4.StateSet, tetris.PieceSet) int {
+	return 0
+}
+
+// NFAScorer gives scores for situtations based on the number of permutations of
+// that have a possible solution i.e situations that an NFA considers doable.
+type NFAScorer struct {
 	// The length of permutations considered. A larger permLen leads to more
 	// accurate scores.
 	permLen int
@@ -19,9 +34,9 @@ type Scorer struct {
 	inviableSizes map[combo4.State]int
 }
 
-// Score provides a score for how good a situation is.
-// Higher scores are better.
-func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
+// Score returns the number of inviable sequences of permLen starting from the
+// bag.
+func (s *NFAScorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
 	// Try the states with the least failures first to reduce the set.
 	states := stateSet.Slice()
 	sort.Slice(states, func(i, j int) bool { return s.inviableSizes[states[i]] < s.inviableSizes[states[j]] })
@@ -30,7 +45,7 @@ func (s *Scorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
 	for _, state := range states {
 		inviableForAll = inviableForAll.Intersection(s.inviable[state])
 	}
-	// Score by the number of inviable sequences. Tie break by the number of states.
+	// Score by the number of inviable sequences.
 	return -inviableForAll.Size(s.permLen)
 }
 
@@ -39,8 +54,8 @@ type stateInviable struct {
 	inviable *tetris.SeqSet
 }
 
-// NewScorer creates a new Scorer based on permutations of the specified length.
-func NewScorer(permLen int) *Scorer {
+// NewNFAScorer creates a new Scorer based on permutations of the specified length.
+func NewNFAScorer(permLen int) *NFAScorer {
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 	states := nfa.States().Slice()
 
@@ -74,7 +89,7 @@ func NewScorer(permLen int) *Scorer {
 			inviable[si.state] = si.inviable
 		}
 	}
-	return &Scorer{
+	return &NFAScorer{
 		permLen:       permLen,
 		inviable:      inviable,
 		inviableSizes: genSizes(inviable, permLen),

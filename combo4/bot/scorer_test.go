@@ -7,32 +7,28 @@ import (
 	"tetris/combo4"
 )
 
-func BenchmarkNewScorer7(b *testing.B) {
+func BenchmarkNewNFAScorer7(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		_ = NewScorer(7)
+		_ = NewNFAScorer(7)
 	}
 }
 
-func BenchmarkNewScorer8(b *testing.B) {
+func BenchmarkNewNFAScorer8(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		_ = NewScorer(8)
+		_ = NewNFAScorer(8)
 	}
 }
 
-func BenchmarkScore(b *testing.B) {
+func BenchmarkNFAScore(b *testing.B) {
 	// Pick a random set of 50 states.
-	stateSet := combo4.NewNFA(combo4.AllContinuousMoves()).States()
-	states := make([]combo4.State, 0, len(stateSet))
-	for s := range stateSet {
-		states = append(states, s)
-	}
+	states := combo4.NewNFA(combo4.AllContinuousMoves()).States().Slice()
 	set := combo4.NewStateSet()
 	for len(set) < 50 {
 		randIdx := rand.Intn(len(states))
 		set[states[randIdx]] = true
 	}
 
-	s := NewScorer(7)
+	s := NewNFAScorer(7)
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
@@ -58,7 +54,7 @@ func TestScore(t *testing.T) {
 			bag: tetris.NewPieceSet(tetris.I, tetris.J),
 		},
 	}
-	s := NewScorer(7)
+	s := NewNFAScorer(7)
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {

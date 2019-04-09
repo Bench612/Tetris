@@ -30,7 +30,7 @@ func main() {
 		}
 	}
 
-	d := bot.NewDecider()
+	d := bot.NewDecider(bot.NewNFAScorer(8))
 	input := make(chan tetris.Piece, 1)
 	output := d.StartGame(combo4.LeftI, first, next, input)
 

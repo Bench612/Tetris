@@ -8,14 +8,15 @@ import (
 // Decider picks the next best state based on a Scorer.
 type Decider struct {
 	nfa    *combo4.NFA
-	scorer *Scorer
+	scorer Scorer
 }
 
 // NewDecider creates a new Decider.
-func NewDecider() *Decider {
+func NewDecider(scorer Scorer) *Decider {
 	return &Decider{
+		// TODO(benjaminchang): Include non-continuous moves here.
 		nfa:    combo4.NewNFA(combo4.AllContinuousMoves()),
-		scorer: NewScorer(7),
+		scorer: scorer,
 	}
 }
 
@@ -88,6 +89,10 @@ func (d *Decider) NextState(initial combo4.State, current tetris.Piece, next []t
 // StartGame panics if a piece that does not follow the 7 bag randomizer is
 // added to the input channel.
 func (d *Decider) StartGame(initial combo4.Field4x4, current tetris.Piece, next []tetris.Piece, input chan tetris.Piece) chan *combo4.State {
+	cpy := make([]tetris.Piece, len(next))
+	copy(cpy, next)
+	next = cpy
+
 	state := &combo4.State{Field: initial}
 	bag := tetris.NewPieceSet(next...).Add(current)
 
@@ -120,7 +125,7 @@ func (d *Decider) StartGame(initial combo4.Field4x4, current tetris.Piece, next 
 				bag = 0
 			}
 			if bag.Contains(p) {
-				panic("impossible piece for bag state" + p.String())
+				panic(`impossible piece "` + p.String() + `" for bag state ` + bag.String())
 			}
 			bag = bag.Add(p)
 
