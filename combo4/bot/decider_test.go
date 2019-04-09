@@ -26,7 +26,7 @@ func BenchmarkNextState(b *testing.B) {
 	}
 }
 
-func TestStartGameRatio(t *testing.T) {
+func TestStartGameSucessRate(t *testing.T) {
 	const (
 		trials         = 100
 		piecesPerTrial = 100

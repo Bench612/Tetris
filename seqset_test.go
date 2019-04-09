@@ -1,16 +1,13 @@
 package tetris
 
 import (
-	"bytes"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 )
 
 func TestSeqSetContains(t *testing.T) {
-	set := new(SeqSet)
-	set.AddPrefix([]Piece{I, J, O})
-	set.AddPrefix([]Piece{S, S, S, T, T})
+	set := NewSeqSet([]Piece{I, J, O}, []Piece{S, S, S, T, T})
 
 	tests := []struct {
 		desc string
@@ -70,61 +67,13 @@ func TestPrefixes(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			set := new(SeqSet)
-			for _, seq := range test.seqs {
-				set.AddPrefix(seq)
-			}
+			set := NewSeqSet(test.seqs...)
 			got := set.Prefixes()
 			if !cmp.Equal(got, test.seqs) {
 				t.Errorf("Prefixes got %v, want %v", got, test.seqs)
 			}
 		})
 	}
-}
-
-func TestSeqSetEncodeDecode(t *testing.T) {
-	ijo := new(SeqSet)
-	ijo.AddPrefix([]Piece{I, J, O})
-
-	tests := []struct {
-		desc string
-		set  *SeqSet
-	}{
-		{
-			desc: "Simple SeqSet",
-			set:  ijo,
-		},
-		{
-			desc: "nil SeqSet",
-			set:  nil,
-		},
-		{
-			desc: "permutation SeqSet",
-			set:  Permutations(50),
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.desc, func(t *testing.T) {
-			bytes1, _ := test.set.GobEncode()
-
-			got := new(SeqSet)
-			if err := got.GobDecode(bytes1); err != nil {
-				t.Fatalf("GobDecode failed: %v", err)
-			}
-			if !got.Equals(test.set) {
-				t.Errorf("Encode->Decode does not equal original")
-			}
-			if !cmp.Equal(got.Prefixes(), test.set.Prefixes()) {
-				t.Errorf("Encode->Decode prefixes does not equal original got %v, want %v", got.Prefixes(), test.set.Prefixes())
-			}
-			bytes2, _ := got.GobEncode()
-			if !bytes.Equal(bytes1, bytes2) {
-				diff := cmp.Diff(bytes1, bytes2)
-				t.Errorf("Second GobEncoding is not equal to first (-bytes1 +bytes2)\n:%s", diff)
-			}
-		})
-	}
-
 }
 
 func TestPermSize(t *testing.T) {
@@ -145,39 +94,39 @@ func TestPermSize(t *testing.T) {
 func TestSeqSetSize(t *testing.T) {
 	tests := []struct {
 		desc   string
-		seqs   [][]Piece
+		set    *SeqSet
 		length int
 		want   int
 	}{
 		{
 			desc: "Two sequences",
-			seqs: [][]Piece{
-				{I, J, O},
-				{S, S, S, T, T},
-			},
+			set: NewSeqSet(
+				[]Piece{I, J, O},
+				[]Piece{S, S, S, T, T},
+			),
 			length: 5,
 			want:   7*7 + 1,
 		},
 		{
-			desc:   "Length 0 without [] prefix",
-			seqs:   [][]Piece{{I, J, O}},
+			desc: "Length 0 without [] prefix",
+			set: NewSeqSet(
+				[]Piece{I, J, O},
+			),
 			length: 0,
 			want:   0,
 		},
 		{
-			desc:   "Length 0 with [] prefix",
-			seqs:   [][]Piece{{}},
+			desc: "Length 0 with [] prefix",
+			set: NewSeqSet(
+				[]Piece{},
+			),
 			length: 0,
 			want:   1,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			set := new(SeqSet)
-			for _, seq := range test.seqs {
-				set.AddPrefix(seq)
-			}
-			got := set.Size(test.length)
+			got := test.set.Size(test.length)
 			if got != test.want {
 				t.Errorf("got Size = %d, want %d", got, test.want)
 			}
@@ -229,15 +178,10 @@ func TestSeqSetEquals(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			set1 := new(SeqSet)
-			for _, seq := range test.seqs1 {
-				set1.AddPrefix(seq)
-			}
-
-			set2 := new(SeqSet)
-			for _, seq := range test.seqs2 {
-				set2.AddPrefix(seq)
-			}
+			var (
+				set1 = NewSeqSet(test.seqs1...)
+				set2 = NewSeqSet(test.seqs2...)
+			)
 
 			if got := set1.Equals(set2); got != test.want {
 				t.Errorf("got Equal = %t, want %t", got, test.want)
@@ -290,20 +234,11 @@ func TestSeqSetIntersection(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			set1 := new(SeqSet)
-			for _, seq := range test.seqs1 {
-				set1.AddPrefix(seq)
-			}
-
-			set2 := new(SeqSet)
-			for _, seq := range test.seqs2 {
-				set2.AddPrefix(seq)
-			}
-
-			want := new(SeqSet)
-			for _, seq := range test.want {
-				want.AddPrefix(seq)
-			}
+			var (
+				set1 = NewSeqSet(test.seqs1...)
+				set2 = NewSeqSet(test.seqs2...)
+				want = NewSeqSet(test.want...)
+			)
 
 			got := set1.Intersection(set2)
 			if !got.Equals(want) {
@@ -360,25 +295,28 @@ func TestSeqSetUnion(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			set1 := new(SeqSet)
-			for _, seq := range test.seqs1 {
-				set1.AddPrefix(seq)
-			}
-
-			set2 := new(SeqSet)
-			for _, seq := range test.seqs2 {
-				set2.AddPrefix(seq)
-			}
-
-			want := new(SeqSet)
-			for _, seq := range test.want {
-				want.AddPrefix(seq)
-			}
+			var (
+				set1 = NewSeqSet(test.seqs1...)
+				set2 = NewSeqSet(test.seqs2...)
+				want = NewSeqSet(test.want...)
+			)
 
 			got := set1.Union(set2)
 			if !got.Equals(want) {
 				t.Errorf("Union() got %v, want %v", got, want)
 			}
 		})
+	}
+}
+
+func TestPrependedSeqSets(t *testing.T) {
+	initial := NewSeqSet([]Piece{I, J, O}, []Piece{S, Z, L})
+	want := NewSeqSet([]Piece{S, I, J, O}, []Piece{S, S, Z, L})
+
+	var prefixToSet [8]*SeqSet
+	prefixToSet[S] = initial
+	got := PrependedSeqSets(prefixToSet)
+	if !got.Equals(want) {
+		t.Errorf("PrependedSeqSets got %v, want %v", got, want)
 	}
 }

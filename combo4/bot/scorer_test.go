@@ -1,106 +1,21 @@
 package bot
 
 import (
-	"bytes"
 	"math/rand"
 	"testing"
 	"tetris"
 	"tetris/combo4"
 )
 
-func TestForEach7Seq(t *testing.T) {
-	tests := []struct {
-		desc      string
-		bag       tetris.PieceSet
-		wantCount int
-	}{
-		{
-			desc: "Four bag (J,S,I remaining)",
-			bag:  tetris.NewPieceSet(tetris.J, tetris.S, tetris.I).Inverted(),
-		},
-		{
-			desc: "Five bag (J,S remaining)",
-			bag:  tetris.NewPieceSet(tetris.J, tetris.S).Inverted(),
-		},
-		{
-			desc: "Empty bag",
-		},
-		{
-			desc: "Full bag",
-			bag:  tetris.NewPieceSet(tetris.NonemptyPieces[:]...),
-		},
-	}
-	for _, test := range tests {
-		test := test
-		t.Run(test.desc, func(t *testing.T) {
-			// Use t.Fatal checks to prevent spamming the error logs.
-			t.Run("Basic checks", func(t *testing.T) {
-				seen := make(map[[7]tetris.Piece]bool)
-				forEach7Seq(test.bag, func(perm []tetris.Piece) {
-					if len(perm) != 7 {
-						t.Fatalf("%v: expected 7 elements in permuation", perm)
-					}
-					var seq [7]tetris.Piece
-					copy(seq[:], perm)
-					if seen[seq] {
-						t.Fatalf("%v: permutation is repeated", perm)
-					}
-					seen[seq] = true
-				})
-				if len(seen) != 5040 {
-					t.Errorf("got %d unique permutations, want 5040", len(seen))
-				}
-			})
-			// Use t.Fatal checks to prevent spamming the error logs.
-			t.Run("Contains right pieces", func(t *testing.T) {
-				invertLen := test.bag.Inverted().Len()
-				forEach7Seq(test.bag, func(perm []tetris.Piece) {
-					firstSet := tetris.NewPieceSet(perm[:invertLen]...)
-					if firstSet != test.bag.Inverted() {
-						t.Fatalf("%v: got %v in first %d elements, want %v", perm, firstSet, test.bag.Inverted().Len(), test.bag.Inverted())
-					}
-
-					secondSet := tetris.NewPieceSet(perm[invertLen:]...)
-					if secondSet.Len() != test.bag.Len() {
-						t.Fatalf("%v: expected all unique pieces in the last %d elements, got %d unique elements", perm, test.bag.Len(), secondSet.Len())
-					}
-				})
-			})
-		})
-	}
-}
-
-func TestEncodeDecode(t *testing.T) {
-	seqSet := new(tetris.SeqSet)
-	seqSet.AddPrefix(tetris.NonemptyPieces[:])
-	s := &Scorer{
-		inviable: map[combo4.State]*tetris.SeqSet{
-			combo4.State{Field: combo4.LeftI, Hold: tetris.L}: seqSet,
-		},
-	}
-
-	enc1, err := s.GobEncode()
-	if err != nil {
-		t.Fatalf("GobEncode failed: %v", err)
-	}
-
-	got := &Scorer{}
-	if err := got.GobDecode(enc1); err != nil {
-		t.Fatalf("GobDecode failed: %v", err)
-	}
-	enc2, err := s.GobEncode()
-	if err != nil {
-		t.Fatalf("Second GobEncode failed: %v", err)
-	}
-
-	if !bytes.Equal(enc1, enc2) {
-		t.Fatalf("First and second GobEncode returned different values ")
-	}
-}
-
-func BenchmarkNewScorer(b *testing.B) {
+func BenchmarkNewScorer7(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		_ = NewScorer()
+		_ = NewScorer(7)
+	}
+}
+
+func BenchmarkNewScorer8(b *testing.B) {
+	for n := 0; n < b.N; n++ {
+		_ = NewScorer(8)
 	}
 }
 
@@ -117,7 +32,7 @@ func BenchmarkScore(b *testing.B) {
 		set[states[randIdx]] = true
 	}
 
-	s := NewScorer()
+	s := NewScorer(7)
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
@@ -143,23 +58,42 @@ func TestScore(t *testing.T) {
 			bag: tetris.NewPieceSet(tetris.I, tetris.J),
 		},
 	}
-	s := NewScorer()
+	s := NewScorer(7)
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
 			var inviable int
-			forEach7Seq(test.bag, func(seq []tetris.Piece) {
+			forEachSeq(test.bag, 7, func(seq []tetris.Piece) {
 				if _, consumed := nfa.EndStates(test.states, seq); consumed != s.permLen {
 					inviable++
 				}
 			})
-			want := (-inviable)<<10 + len(test.states)
+			want := -inviable
 
 			if got := s.Score(test.states, test.bag); got != want {
 				t.Errorf("got Score()=%d, want %d", got, want)
 			}
 		})
+	}
+}
+
+func forEachSeq(bag tetris.PieceSet, seqLen int, do func([]tetris.Piece)) {
+	seq := make([]tetris.Piece, seqLen)
+	forEachSeqHelper(seq, bag, 0, do)
+}
+
+func forEachSeqHelper(seq []tetris.Piece, bag tetris.PieceSet, seqIdx int, do func([]tetris.Piece)) {
+	if bag.Len() == 7 {
+		bag = 0
+	}
+	for _, p := range bag.Inverted().Slice() {
+		seq[seqIdx] = p
+		if seqIdx == len(seq)-1 {
+			do(seq)
+			continue
+		}
+		forEachSeqHelper(seq, bag.Add(p), seqIdx+1, do)
 	}
 }

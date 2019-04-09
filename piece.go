@@ -166,8 +166,8 @@ func (ps PieceSet) Len() int {
 	return bits.OnesCount8(uint8(ps))
 }
 
-// ToSlice returns a slice of all Pieces represented by this set.
-func (ps PieceSet) ToSlice() []Piece {
+// Slice returns a slice of all Pieces represented by this set.
+func (ps PieceSet) Slice() []Piece {
 	if ps.Len() == 0 {
 		return nil
 	}
@@ -181,7 +181,7 @@ func (ps PieceSet) ToSlice() []Piece {
 }
 
 func (ps PieceSet) String() string {
-	return fmt.Sprint(ps.ToSlice())
+	return fmt.Sprint(ps.Slice())
 }
 
 // Inverted returns a PieceSet that contains all Pieces *not* contained in this

@@ -15,7 +15,7 @@ type Decider struct {
 func NewDecider() *Decider {
 	return &Decider{
 		nfa:    combo4.NewNFA(combo4.AllContinuousMoves()),
-		scorer: NewScorer(),
+		scorer: NewScorer(7),
 	}
 }
 
@@ -26,19 +26,17 @@ type scoreTuple struct {
 	// Components of the score orderd by importance.
 	consumedPieces int
 	score          int
+	numStates      int
 }
 
-func (s scoreTuple) GreaterThan(other *scoreTuple) bool {
-	if other == nil {
-		return true
+func (s scoreTuple) GreaterThan(other scoreTuple) bool {
+	if s.consumedPieces != other.consumedPieces {
+		return s.consumedPieces > other.consumedPieces
 	}
-	if s.consumedPieces > other.consumedPieces {
-		return true
+	if s.score != other.score {
+		return s.score > other.score
 	}
-	if s.consumedPieces < other.consumedPieces {
-		return false
-	}
-	return s.score > other.score
+	return s.numStates > other.numStates
 }
 
 // NextState returns the "best" possible next state or nil if there are no
@@ -59,6 +57,7 @@ func (d *Decider) NextState(initial combo4.State, current tetris.Piece, next []t
 					state:          choice,
 					consumedPieces: consumed,
 					score:          d.scorer.Score(endStates, endBagUsed),
+					numStates:      len(endStates),
 				}
 				return
 			}
@@ -69,10 +68,10 @@ func (d *Decider) NextState(initial combo4.State, current tetris.Piece, next []t
 		}()
 	}
 
-	var best *scoreTuple
+	var best scoreTuple
 	for _ = range choices {
 		if pair := <-scores; pair.GreaterThan(best) {
-			best = &pair
+			best = pair
 		}
 	}
 
@@ -86,7 +85,8 @@ func (d *Decider) NextState(initial combo4.State, current tetris.Piece, next []t
 // StartGame assumes there is no piece held and the game is starting with no
 // pieces played yet (starting with an empty bag).
 //
-// StartGame panics if an impossible piece is added to the input channel.
+// StartGame panics if a piece that does not follow the 7 bag randomizer is
+// added to the input channel.
 func (d *Decider) StartGame(initial combo4.Field4x4, current tetris.Piece, next []tetris.Piece, input chan tetris.Piece) chan *combo4.State {
 	state := &combo4.State{Field: initial}
 	bag := tetris.NewPieceSet(next...).Add(current)

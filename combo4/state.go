@@ -30,6 +30,15 @@ func NewStateSet(states ...State) StateSet {
 	return set
 }
 
+// Slice converts the StateSet to a slice.
+func (s StateSet) Slice() []State {
+	slice := make([]State, 0, len(s))
+	for state := range s {
+		slice = append(slice, state)
+	}
+	return slice
+}
+
 // NFA represents a non-determinstic finite automina with some differences.
 // All states are considered "final" and there is no "initial" state.
 // NFA is safe for concurrent use.

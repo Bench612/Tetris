@@ -50,9 +50,9 @@ func TestToSlice(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
 			ps := NewPieceSet(test.input...)
-			got := ps.ToSlice()
+			got := ps.Slice()
 			if diff := cmp.Diff(test.want, got); diff != "" {
-				t.Errorf("ToSlice() mismatch(-want +got):\n%s", diff)
+				t.Errorf("Slice() mismatch(-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -182,7 +182,7 @@ func TestAllPieceSets(t *testing.T) {
 	sets := AllPieceSets()
 	seen := make(map[PieceSet]bool)
 	for _, ps := range sets {
-		ps = NewPieceSet(ps.ToSlice()...)
+		ps = NewPieceSet(ps.Slice()...)
 		if seen[ps] {
 			t.Errorf("PieceSet %v is duplicated", ps)
 		}
