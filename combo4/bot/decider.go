@@ -94,7 +94,13 @@ func (d *Decider) StartGame(initial combo4.Field4x4, current tetris.Piece, next 
 	next = cpy
 
 	state := &combo4.State{Field: initial}
-	bag := tetris.NewPieceSet(next...).Add(current)
+	bag := current.PieceSet()
+	for _, n := range next {
+		bag = bag.Add(n)
+		if bag.Len() == 7 {
+			bag = 0
+		}
+	}
 
 	output := make(chan *combo4.State, len(input))
 	go func() {

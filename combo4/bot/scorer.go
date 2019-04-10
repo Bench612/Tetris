@@ -14,12 +14,12 @@ type Scorer interface {
 	Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int
 }
 
-// ZeroScorer returns 0 for every score.
-type ZeroScorer struct{}
+// NumStatesScorer returns the number of states.
+type NumStatesScorer struct{}
 
 // Score returns 0.
-func (*ZeroScorer) Score(combo4.StateSet, tetris.PieceSet) int {
-	return 0
+func (*NumStatesScorer) Score(set combo4.StateSet, _ tetris.PieceSet) int {
+	return len(set)
 }
 
 // NFAScorer gives scores for situtations based on the number of permutations of
