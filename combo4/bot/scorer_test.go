@@ -1,42 +1,26 @@
 package bot
 
 import (
-	"math/rand"
 	"testing"
 	"tetris"
 	"tetris/combo4"
 )
 
 func BenchmarkNewNFAScorer7(b *testing.B) {
+	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 	for n := 0; n < b.N; n++ {
-		_ = NewNFAScorer(7)
+		_ = NewNFAScorer(nfa, 7)
 	}
 }
 
 func BenchmarkNewNFAScorer8(b *testing.B) {
+	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 	for n := 0; n < b.N; n++ {
-		_ = NewNFAScorer(8)
+		_ = NewNFAScorer(nfa, 8)
 	}
 }
 
-func BenchmarkNFAScore(b *testing.B) {
-	// Pick a random set of 50 states.
-	states := combo4.NewNFA(combo4.AllContinuousMoves()).States().Slice()
-	set := combo4.NewStateSet()
-	for len(set) < 50 {
-		randIdx := rand.Intn(len(states))
-		set[states[randIdx]] = true
-	}
-
-	s := NewNFAScorer(7)
-
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		s.Score(set, tetris.NewPieceSet(tetris.I, tetris.J))
-	}
-}
-
-func TestScore(t *testing.T) {
+func TestPermutationScore(t *testing.T) {
 	tests := []struct {
 		desc   string
 		states combo4.StateSet
@@ -54,13 +38,13 @@ func TestScore(t *testing.T) {
 			bag: tetris.NewPieceSet(tetris.I, tetris.J),
 		},
 	}
-	s := NewNFAScorer(7)
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	s := NewNFAScorer(nfa, 7)
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
-			var inviable int
+			var inviable int64
 			forEachSeq(test.bag, 7, func(seq []tetris.Piece) {
 				if _, consumed := nfa.EndStates(test.states, seq); consumed != s.permLen {
 					inviable++
@@ -68,8 +52,8 @@ func TestScore(t *testing.T) {
 			})
 			want := -inviable
 
-			if got := s.Score(test.states, test.bag); got != want {
-				t.Errorf("got Score()=%d, want %d", got, want)
+			if got := s.permutationScore(test.states, test.bag); got != want {
+				t.Errorf("got permutationScore()=%d, want %d", got, want)
 			}
 		})
 	}

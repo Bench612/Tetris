@@ -30,6 +30,19 @@ func NewStateSet(states ...State) StateSet {
 	return set
 }
 
+// Equals returns true if two StateSets are equal.
+func (s StateSet) Equals(other StateSet) bool {
+	if len(s) != len(other) {
+		return false
+	}
+	for k := range s {
+		if _, ok := other[k]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 // Slice converts the StateSet to a slice.
 func (s StateSet) Slice() []State {
 	slice := make([]State, 0, len(s))
@@ -49,10 +62,11 @@ type NFA struct {
 }
 
 // NextStates returns the possible next states.
-//
-// WARNING: The returned slice should not be modified by the caller.
 func (nfa *NFA) NextStates(initial State, piece tetris.Piece) []State {
-	return nfa.trans[piece][initial]
+	ns := nfa.trans[piece][initial]
+	cpy := make([]State, len(ns))
+	copy(cpy, ns)
+	return cpy
 }
 
 // States returns the set of States represented in the NFA.

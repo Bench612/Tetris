@@ -10,7 +10,7 @@ import (
 func BenchmarkNextState(b *testing.B) {
 	states := combo4.NewNFA(combo4.AllContinuousMoves()).States().Slice()
 
-	d := NewDecider(NewNFAScorer(7))
+	d := NewDecider(NewNFAScorer(nfa, 7))
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
@@ -22,14 +22,14 @@ func BenchmarkNextState(b *testing.B) {
 	}
 }
 
-func TestStartGameSucessRate(t *testing.T) {
+func TestNFAScorerSucessRate(t *testing.T) {
 	const (
 		trials         = 100
 		piecesPerTrial = 100
 	)
 
 	rand.Seed(1)
-	d := NewDecider(NewNFAScorer(7))
+	d := NewDecider(NewNFAScorer(nfa, 7))
 
 	var incomplete int
 	for t := 0; t < trials; t++ {

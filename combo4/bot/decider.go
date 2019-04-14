@@ -1,82 +1,86 @@
 package bot
 
 import (
+	"sync"
 	"tetris"
 	"tetris/combo4"
 )
 
 // Decider picks the next best state based on a Scorer.
 type Decider struct {
-	nfa    *combo4.NFA
-	scorer Scorer
+	nfa     *combo4.NFA
+	scorers []Scorer
 }
 
-// NewDecider creates a new Decider.
-func NewDecider(scorer Scorer) *Decider {
+// TODO(benjaminchang): Include non-continuous moves here.
+var nfa = combo4.NewNFA(combo4.AllContinuousMoves())
+
+// NewDecider creates a new Decider based on the Scorers. The later Scorers
+// are used to tie break earlier scorers.
+func NewDecider(scorers ...Scorer) *Decider {
 	return &Decider{
-		// TODO(benjaminchang): Include non-continuous moves here.
-		nfa:    combo4.NewNFA(combo4.AllContinuousMoves()),
-		scorer: scorer,
+		scorers: scorers,
 	}
-}
-
-type scoreTuple struct {
-	// The state that this score pertains to.
-	state combo4.State
-
-	// Components of the score orderd by importance.
-	consumedPieces int
-	score          int
-	numStates      int
-}
-
-func (s scoreTuple) GreaterThan(other scoreTuple) bool {
-	if s.consumedPieces != other.consumedPieces {
-		return s.consumedPieces > other.consumedPieces
-	}
-	if s.score != other.score {
-		return s.score > other.score
-	}
-	return s.numStates > other.numStates
 }
 
 // NextState returns the "best" possible next state or nil if there are no
 // possible moves.
-func (d *Decider) NextState(initial combo4.State, current tetris.Piece, next []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
-	choices := d.nfa.NextStates(initial, current)
-	if len(choices) == 0 {
+func (d *Decider) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
+	choices := nfa.NextStates(initial, current)
+	switch len(choices) {
+	case 0:
 		return nil
+	case 1:
+		return &choices[0]
 	}
 
-	scores := make(chan scoreTuple, len(choices))
-	for _, choice := range choices {
-		choice := choice // Capture range variable.
-		go func() {
-			endStates, consumed := d.nfa.EndStates(combo4.NewStateSet(choice), next)
-			if consumed == len(next) {
-				scores <- scoreTuple{
-					state:          choice,
-					consumedPieces: consumed,
-					score:          d.scorer.Score(endStates, endBagUsed),
-					numStates:      len(endStates),
+	scores := make([]int64, len(choices))
+	var bestState combo4.State
+	for sIdx, scorer := range d.scorers {
+		var wg sync.WaitGroup
+		wg.Add(len(choices))
+		for idx, choice := range choices {
+			idx, choice := idx, choice // Capture range variables.
+			go func() {
+				scores[idx] = scorer.Score(choice, preview, endBagUsed)
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+
+		bestScore := int64(-1 << 63)
+		for idx, score := range scores {
+			if score > bestScore {
+				bestScore = score
+				bestState = choices[idx]
+			}
+		}
+
+		if sIdx != len(d.scorers)-1 {
+			break
+		}
+		// If there are multiple with the best score, narrow the choices
+		// for the next Scorer.
+		var numBest int
+		for _, score := range scores {
+			if score == bestScore {
+				numBest++
+			}
+		}
+		if numBest > 1 {
+			var newIdx int
+			for idx, score := range scores {
+				if score == bestScore {
+					choices[newIdx] = choices[idx]
+					newIdx++
 				}
-				return
 			}
-			scores <- scoreTuple{
-				state:          choice,
-				consumedPieces: consumed,
-			}
-		}()
-	}
-
-	var best scoreTuple
-	for _ = range choices {
-		if pair := <-scores; pair.GreaterThan(best) {
-			best = pair
+			scores = scores[:numBest]
+			choices = choices[:numBest]
 		}
 	}
 
-	return &best.state
+	return &bestState
 }
 
 // StartGame returns a channel that outputs the next state and then an

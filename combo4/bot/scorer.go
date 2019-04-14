@@ -9,22 +9,14 @@ import (
 
 // Scorer scores a sitaution on how good it is.
 type Scorer interface {
-	// A higher score means the sitauation is better than other stateSets
-	// for the same bagUsed.
-	Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int
-}
-
-// NumStatesScorer returns the number of states.
-type NumStatesScorer struct{}
-
-// Score returns 0.
-func (*NumStatesScorer) Score(set combo4.StateSet, _ tetris.PieceSet) int {
-	return len(set)
+	// A higher score means the situation is better than others.
+	Score(state combo4.State, next []tetris.Piece, bagUsed tetris.PieceSet) int64
 }
 
 // NFAScorer gives scores for situtations based on the number of permutations of
 // that have a possible solution i.e situations that an NFA considers doable.
 type NFAScorer struct {
+	nfa *combo4.NFA
 	// The length of permutations considered. A larger permLen leads to more
 	// accurate scores.
 	permLen int
@@ -34,11 +26,29 @@ type NFAScorer struct {
 	inviableSizes map[combo4.State]int
 }
 
-// Score returns the number of inviable sequences of permLen starting from the
-// bag.
-func (s *NFAScorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int {
+// Score looks at the next pieces and all permutations of length permLen after
+// the next pieces and sees which ones an NFA could solve.
+func (s *NFAScorer) Score(state combo4.State, next []tetris.Piece, bagUsed tetris.PieceSet) int64 {
+	endStates, consumed := s.nfa.EndStates(combo4.NewStateSet(state), next)
+
+	consumedScore := int64(consumed)
+	numStatesScore := int64(len(endStates))
+
+	var permutationScore int64
+	if numStatesScore > 0 {
+		permutationScore = s.permutationScore(endStates, bagUsed)
+	}
+
+	// Score by (in order of importance)
+	// 1) The number of elements consumed. (must be less than 2^13)
+	// 2) The viable/inviable permutations (must be less than 2^40)
+	// 3) The number of states.            (must be less than 2^10)
+	return consumedScore<<50 + permutationScore<<10 + numStatesScore
+}
+
+func (s *NFAScorer) permutationScore(endStates combo4.StateSet, bagUsed tetris.PieceSet) int64 {
 	// Try the states with the least failures first to reduce the set.
-	states := stateSet.Slice()
+	states := endStates.Slice()
 	sort.Slice(states, func(i, j int) bool { return s.inviableSizes[states[i]] < s.inviableSizes[states[j]] })
 
 	inviableForAll := tetris.Permutations(bagUsed)
@@ -46,7 +56,7 @@ func (s *NFAScorer) Score(stateSet combo4.StateSet, bagUsed tetris.PieceSet) int
 		inviableForAll = inviableForAll.Intersection(s.inviable[state])
 	}
 	// Score by the number of inviable sequences.
-	return -inviableForAll.Size(s.permLen)
+	return int64(-inviableForAll.Size(s.permLen))
 }
 
 type stateInviable struct {
@@ -55,9 +65,11 @@ type stateInviable struct {
 }
 
 // NewNFAScorer creates a new Scorer based on permutations of the specified length.
-func NewNFAScorer(permLen int) *NFAScorer {
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+func NewNFAScorer(nfa *combo4.NFA, permLen int) *NFAScorer {
 	states := nfa.States().Slice()
+	if len(states) > 2<<10 {
+		panic("Too many possible states to generate a score")
+	}
 
 	ch := make(chan stateInviable, len(states))
 
@@ -90,6 +102,7 @@ func NewNFAScorer(permLen int) *NFAScorer {
 		}
 	}
 	return &NFAScorer{
+		nfa:           nfa,
 		permLen:       permLen,
 		inviable:      inviable,
 		inviableSizes: genSizes(inviable, permLen),

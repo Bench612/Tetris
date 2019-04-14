@@ -14,34 +14,43 @@ import (
 )
 
 var (
-	numTrials     = flag.Int("num_trials", 1000, "the number of trials to test each scorer with")
+	numTrials     = flag.Int("num_trials", 100, "the number of trials to test each scorer with")
 	previewSize   = flag.Int("preview_size", 6, "the number of pieces you can see in the preview")
 	deterministic = flag.Bool("deterministic", true, "whether the output is the same with each run")
 )
 
 // Which points to keep track of.
-var checkpoints = [...]int{100, 500, 1000, 2000, 5000, 10000}
+var checkpoints = [...]int{100, 500, 1000, 2000, 5000}
+
+var nfa = combo4.NewNFA(combo4.AllContinuousMoves())
 
 // The Scorers to test.
 var scorersWithNames = [...]struct {
-	scorer bot.Scorer
 	name   string
+	scorer bot.Scorer
 }{
-	{new(bot.NumStatesScorer), "# States"},
-	{bot.NewNFAScorer(2), "Seq 2"},
-	{bot.NewNFAScorer(4), "Seq 4"},
-	{bot.NewNFAScorer(7), "Seq 7"},
+	{"Seq 2", bot.NewNFAScorer(nfa, 2)},
+	{"Seq 7", bot.NewNFAScorer(nfa, 7)},
 }
 
+/* Sample Output
+
+Preview Size = 6 pieces
+Trials = 1000
+Max sequence per trial = 5000
+              Avg      Reach 100   Reach 500   Reach 1000   Reach 2000   Reach 5000
+Seq 2         476.2    66.1%       35.7%       15.4%        2.3%         0.0%
+Seq 7         1089.0   72.9%       55.1%       38.2%        19.0%        2.3%
+Seq 8         1192.9   72.9%       56.1%       40.6%        22.1%        4.1%
+Upper-bound   3905.3   78.1%       78.1%       78.1%        78.0%        77.8%
+
+*/
 func main() {
 	flag.Parse()
 
 	if !*deterministic {
 		rand.Seed(time.Now().UnixNano())
 	}
-
-	// TODO(benjaminchang): Include non-continuous moves.
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 
 	var (
 		totals [len(scorersWithNames)]int
