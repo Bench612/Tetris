@@ -31,9 +31,9 @@ func main() {
 	}
 
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
-	d := bot.NewDecider(bot.NewNFAScorer(nfa, 8))
+	d := bot.NewScoreDecider(nfa, bot.NewNFAScorer(nfa, 8))
 	input := make(chan tetris.Piece, 1)
-	output := d.StartGame(combo4.LeftI, first, next, input)
+	output := bot.StartGame(d, combo4.LeftI, first, next, input)
 
 	reader := bufio.NewReader(os.Stdin)
 	for state := range output {

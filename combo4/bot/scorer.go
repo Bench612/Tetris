@@ -29,24 +29,35 @@ type NFAScorer struct {
 // Score looks at the next pieces and all permutations of length permLen after
 // the next pieces and sees which ones an NFA could solve.
 func (s *NFAScorer) Score(state combo4.State, next []tetris.Piece, bagUsed tetris.PieceSet) int64 {
-	endStates, consumed := s.nfa.EndStates(combo4.NewStateSet(state), next)
-
-	consumedScore := int64(consumed)
-	numStatesScore := int64(len(endStates))
-
-	var permutationScore int64
-	if numStatesScore > 0 {
-		permutationScore = s.permutationScore(endStates, bagUsed)
-	}
+	tuple := s.scoreTuple(state, next, bagUsed)
 
 	// Score by (in order of importance)
-	// 1) The number of elements consumed. (must be less than 2^13)
+	// 1) The number of elements consumed. (must be less than 2^13=8192)
 	// 2) The viable/inviable permutations (must be less than 2^40)
-	// 3) The number of states.            (must be less than 2^10)
-	return consumedScore<<50 + permutationScore<<10 + numStatesScore
+	// 3) The number of states.            (must be less than 2^10=1024)
+	return int64(tuple.consumed<<50) - int64(tuple.invalidPermutations<<10) + int64(tuple.numStates)
 }
 
-func (s *NFAScorer) permutationScore(endStates combo4.StateSet, bagUsed tetris.PieceSet) int64 {
+type scoreTuple struct {
+	consumed            int
+	invalidPermutations int
+	numStates           int
+}
+
+func (s *NFAScorer) scoreTuple(state combo4.State, next []tetris.Piece, bagUsed tetris.PieceSet) scoreTuple {
+	endStates, consumed := s.nfa.EndStates(combo4.NewStateSet(state), next)
+
+	score := scoreTuple{
+		consumed:  consumed,
+		numStates: len(endStates),
+	}
+	if consumed == len(next) {
+		score.invalidPermutations = s.inviableSeqs(endStates, bagUsed)
+	}
+	return score
+}
+
+func (s *NFAScorer) inviableSeqs(endStates combo4.StateSet, bagUsed tetris.PieceSet) int {
 	// Try the states with the least failures first to reduce the set.
 	states := endStates.Slice()
 	sort.Slice(states, func(i, j int) bool { return s.inviableSizes[states[i]] < s.inviableSizes[states[j]] })
@@ -56,7 +67,7 @@ func (s *NFAScorer) permutationScore(endStates combo4.StateSet, bagUsed tetris.P
 		inviableForAll = inviableForAll.Intersection(s.inviable[state])
 	}
 	// Score by the number of inviable sequences.
-	return int64(-inviableForAll.Size(s.permLen))
+	return inviableForAll.Size(s.permLen)
 }
 
 type stateInviable struct {

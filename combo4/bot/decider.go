@@ -6,27 +6,29 @@ import (
 	"tetris/combo4"
 )
 
-// Decider picks the next best state based on a Scorer.
-type Decider struct {
-	nfa     *combo4.NFA
-	scorers []Scorer
+// Decider picks the next best state.
+type Decider interface {
+	NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State
 }
 
-// TODO(benjaminchang): Include non-continuous moves here.
-var nfa = combo4.NewNFA(combo4.AllContinuousMoves())
+// scoreDecider picks the next best state based on a Scorer.
+type scoreDecider struct {
+	nfa    *combo4.NFA
+	scorer Scorer
+}
 
-// NewDecider creates a new Decider based on the Scorers. The later Scorers
-// are used to tie break earlier scorers.
-func NewDecider(scorers ...Scorer) *Decider {
-	return &Decider{
-		scorers: scorers,
+// NewScoreDecider creates a new Decider based a Scorer.
+func NewScoreDecider(nfa *combo4.NFA, scorer Scorer) Decider {
+	return &scoreDecider{
+		nfa:    nfa,
+		scorer: scorer,
 	}
 }
 
 // NextState returns the "best" possible next state or nil if there are no
 // possible moves.
-func (d *Decider) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
-	choices := nfa.NextStates(initial, current)
+func (d *scoreDecider) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
+	choices := d.nfa.NextStates(initial, current)
 	switch len(choices) {
 	case 0:
 		return nil
@@ -35,48 +37,23 @@ func (d *Decider) NextState(initial combo4.State, current tetris.Piece, preview 
 	}
 
 	scores := make([]int64, len(choices))
+	var wg sync.WaitGroup
+	wg.Add(len(choices))
+	for idx, choice := range choices {
+		idx, choice := idx, choice // Capture range variables.
+		go func() {
+			scores[idx] = d.scorer.Score(choice, preview, endBagUsed)
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+
 	var bestState combo4.State
-	for sIdx, scorer := range d.scorers {
-		var wg sync.WaitGroup
-		wg.Add(len(choices))
-		for idx, choice := range choices {
-			idx, choice := idx, choice // Capture range variables.
-			go func() {
-				scores[idx] = scorer.Score(choice, preview, endBagUsed)
-				wg.Done()
-			}()
-		}
-		wg.Wait()
-
-		bestScore := int64(-1 << 63)
-		for idx, score := range scores {
-			if score > bestScore {
-				bestScore = score
-				bestState = choices[idx]
-			}
-		}
-
-		if sIdx != len(d.scorers)-1 {
-			break
-		}
-		// If there are multiple with the best score, narrow the choices
-		// for the next Scorer.
-		var numBest int
-		for _, score := range scores {
-			if score == bestScore {
-				numBest++
-			}
-		}
-		if numBest > 1 {
-			var newIdx int
-			for idx, score := range scores {
-				if score == bestScore {
-					choices[newIdx] = choices[idx]
-					newIdx++
-				}
-			}
-			scores = scores[:numBest]
-			choices = choices[:numBest]
+	bestScore := int64(-1 << 63)
+	for idx, score := range scores {
+		if score > bestScore {
+			bestScore = score
+			bestState = choices[idx]
 		}
 	}
 
@@ -92,7 +69,7 @@ func (d *Decider) NextState(initial combo4.State, current tetris.Piece, preview 
 //
 // StartGame panics if a piece that does not follow the 7 bag randomizer is
 // added to the input channel.
-func (d *Decider) StartGame(initial combo4.Field4x4, current tetris.Piece, next []tetris.Piece, input chan tetris.Piece) chan *combo4.State {
+func StartGame(d Decider, initial combo4.Field4x4, current tetris.Piece, next []tetris.Piece, input chan tetris.Piece) chan *combo4.State {
 	cpy := make([]tetris.Piece, len(next))
 	copy(cpy, next)
 	next = cpy
@@ -145,4 +122,32 @@ func (d *Decider) StartGame(initial combo4.Field4x4, current tetris.Piece, next 
 	}()
 
 	return output
+}
+
+type mdpDecider struct {
+	policy         map[GameState]combo4.State
+	defaultDecider Decider
+}
+
+// NewMDPDecider returns a new Decider based on an MDP.
+func NewMDPDecider(mdp *MDP) Decider {
+	policy, scorer := mdp.Policy()
+	return &mdpDecider{
+		policy:         policy,
+		defaultDecider: NewScoreDecider(combo4.NewNFA(combo4.AllContinuousMoves()), scorer),
+	}
+}
+
+func (d *mdpDecider) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
+	gameState := GameState{
+		State:   initial,
+		Current: current,
+		Preview: tetris.MustSeq(preview),
+		BagUsed: endBagUsed,
+	}
+	if nextState, ok := d.policy[gameState]; ok {
+		copy := nextState
+		return &copy
+	}
+	return d.defaultDecider.NextState(initial, current, preview, endBagUsed)
 }

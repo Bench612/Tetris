@@ -20,7 +20,7 @@ func BenchmarkNewNFAScorer8(b *testing.B) {
 	}
 }
 
-func TestPermutationScore(t *testing.T) {
+func TestInviableSeqs(t *testing.T) {
 	tests := []struct {
 		desc   string
 		states combo4.StateSet
@@ -44,36 +44,16 @@ func TestPermutationScore(t *testing.T) {
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
-			var inviable int64
+			var want int
 			forEachSeq(test.bag, 7, func(seq []tetris.Piece) {
 				if _, consumed := nfa.EndStates(test.states, seq); consumed != s.permLen {
-					inviable++
+					want++
 				}
 			})
-			want := -inviable
 
-			if got := s.permutationScore(test.states, test.bag); got != want {
-				t.Errorf("got permutationScore()=%d, want %d", got, want)
+			if got := s.inviableSeqs(test.states, test.bag); got != want {
+				t.Errorf("got inviableSeqs()=%d, want %d", got, want)
 			}
 		})
-	}
-}
-
-func forEachSeq(bag tetris.PieceSet, seqLen int, do func([]tetris.Piece)) {
-	seq := make([]tetris.Piece, seqLen)
-	forEachSeqHelper(seq, bag, 0, do)
-}
-
-func forEachSeqHelper(seq []tetris.Piece, bag tetris.PieceSet, seqIdx int, do func([]tetris.Piece)) {
-	if bag.Len() == 7 {
-		bag = 0
-	}
-	for _, p := range bag.Inverted().Slice() {
-		seq[seqIdx] = p
-		if seqIdx == len(seq)-1 {
-			do(seq)
-			continue
-		}
-		forEachSeqHelper(seq, bag.Add(p), seqIdx+1, do)
 	}
 }

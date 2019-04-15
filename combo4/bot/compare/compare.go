@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"sync"
 	"tetris"
 	"tetris/combo4"
 	"tetris/combo4/bot"
@@ -24,13 +25,14 @@ var checkpoints = [...]int{100, 500, 1000, 2000, 5000}
 
 var nfa = combo4.NewNFA(combo4.AllContinuousMoves())
 
-// The Scorers to test.
-var scorersWithNames = [...]struct {
-	name   string
-	scorer bot.Scorer
+// The Deciders to test.
+var decidersWithNames = [...]struct {
+	name    string
+	decider bot.Decider
 }{
-	{"Seq 2", bot.NewNFAScorer(nfa, 2)},
-	{"Seq 7", bot.NewNFAScorer(nfa, 7)},
+	{"Seq 5", bot.NewScoreDecider(nfa, bot.NewNFAScorer(nfa, 5))},
+	{"Seq 6", bot.NewScoreDecider(nfa, bot.NewNFAScorer(nfa, 6))},
+	{"Seq 7", bot.NewScoreDecider(nfa, bot.NewNFAScorer(nfa, 7))},
 }
 
 /* Sample Output
@@ -53,20 +55,58 @@ func main() {
 	}
 
 	var (
-		totals [len(scorersWithNames)]int
-		counts [len(scorersWithNames)][len(checkpoints)]int
+		totals [len(decidersWithNames)]int
+		counts [len(decidersWithNames)][len(checkpoints)]int
 
 		nfaTotal  int
 		nfaCounts [len(checkpoints)]int
 	)
 
-	var deciders [len(scorersWithNames)]*bot.Decider
+	var deciders [len(decidersWithNames)]bot.Decider
 	for idx := range deciders {
-		deciders[idx] = bot.NewDecider(scorersWithNames[idx].scorer)
+		deciders[idx] = decidersWithNames[idx].decider
 	}
 
 	piecesPerTrial := checkpoints[len(checkpoints)-1]
 
+	// Add the totals and counts for each decider.
+	type queueItem struct {
+		dIdx     int
+		consumed int
+	}
+	decidersCh := make(chan queueItem, 30)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		for i := 0; i < len(deciders)**numTrials; i++ {
+			qItem := <-decidersCh
+			for cIdx, c := range checkpoints {
+				if qItem.consumed >= c {
+					counts[qItem.dIdx][cIdx]++
+				}
+			}
+			totals[qItem.dIdx] += qItem.consumed
+		}
+		wg.Done()
+	}()
+
+	// Add the totals and counts for the NFA
+	nfaCh := make(chan int, 10)
+	wg.Add(1)
+	go func() {
+		for i := 0; i < *numTrials; i++ {
+			count := <-nfaCh
+			nfaTotal += count
+			for cIdx, c := range checkpoints {
+				if count > c {
+					nfaCounts[cIdx]++
+				}
+			}
+		}
+		wg.Done()
+	}()
+
+	maxConcurrency := make(chan bool, 32)
 	for t := 0; t < *numTrials; t++ {
 		if (t+1)%10 == 0 {
 			fmt.Printf("Trial %d of %d\n", t+1, *numTrials)
@@ -75,37 +115,36 @@ func main() {
 
 		for dIdx, d := range deciders {
 			dIdx, d := dIdx, d // Capture range variable.
-			input := make(chan tetris.Piece, 1)
+			maxConcurrency <- true
+			go func() {
+				defer func() { <-maxConcurrency }()
 
-			output := d.StartGame(combo4.LeftI, queue[0], queue[1:*previewSize+1], input)
-			if <-output == nil {
-				break
-			}
+				input := make(chan tetris.Piece, 1)
 
-			consumed := 1
-			for _, p := range queue[*previewSize+1:] {
-				input <- p
-				if <-output == nil {
-					break
-				}
-				consumed++
-				for cIdx, c := range checkpoints {
-					if consumed == c {
-						counts[dIdx][cIdx]++
+				output := d.StartGame(combo4.LeftI, queue[0], queue[1:*previewSize+1], input)
+				var consumed int
+				if <-output != nil {
+					consumed++
+					for _, p := range queue[*previewSize+1:] {
+						input <- p
+						if <-output == nil {
+							break
+						}
+						consumed++
 					}
 				}
-			}
-			totals[dIdx] += consumed
+				decidersCh <- queueItem{dIdx: dIdx, consumed: consumed}
+			}()
 		}
 
-		_, nfaCount := nfa.EndStates(combo4.NewStateSet(combo4.State{Field: combo4.LeftI}), queue)
-		nfaTotal += nfaCount
-		for cIdx, c := range checkpoints {
-			if nfaCount > c {
-				nfaCounts[cIdx]++
-			}
-		}
+		go func() {
+			_, count := nfa.EndStates(combo4.NewStateSet(combo4.State{Field: combo4.LeftI}), queue)
+			nfaCh <- count
+		}()
 	}
+
+	// Wait for all trials to be computed.
+	wg.Wait()
 
 	fmt.Printf("\n\nPreview Size = %d pieces\nTrials = %d\nMax sequence per trial = %d\n", *previewSize, *numTrials, piecesPerTrial)
 
