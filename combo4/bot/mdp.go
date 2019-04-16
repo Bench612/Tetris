@@ -6,23 +6,30 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"sync"
 	"tetris"
 	"tetris/combo4"
 )
 
 // MDP represents a Markov Decision Process but only considers the game states
-// that are considered "stable".
+// that are considered "stable". That is, states with a piece held and are not
+// swap restricted.
 type MDP struct {
 	nfa    *combo4.NFA
 	scorer *NFAScorer
 
 	previewLen int
-	// The expected value for how many states it will continue in a "stable"
-	// state including the gameState itself.
-	expectVal map[GameState]float32
+
 	// A map from GameState to the next chosen state.
 	policy map[GameState]combo4.State
+
+	// The expected value for how many combos will occur minus previewLen.
+	// With error margin up to 1.
+	value map[GameState]int
+
+	// Used for optimization internally.
+	recentlyChanged []valueChange
 }
 
 // GameState encapsulates all information about the current game state while
@@ -34,6 +41,11 @@ type GameState struct {
 	BagUsed tetris.PieceSet
 }
 
+type valueChange struct {
+	gState GameState
+	change int
+}
+
 // NewMDP constructs a new MDP.
 func NewMDP(previewLen int) (*MDP, error) {
 	if previewLen > 7 || previewLen < 1 {
@@ -41,15 +53,13 @@ func NewMDP(previewLen int) (*MDP, error) {
 	}
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 
-	prealloc := 1000000
-	if previewLen >= 5 {
-		prealloc = 50000000
-	}
+	prealloc := int(128 * 28 * 7 * 7 * math.Pow(2.6, float64(previewLen)))
 	mdp := &MDP{
-		nfa:        nfa,
-		scorer:     NewNFAScorer(nfa, previewLen),
-		previewLen: previewLen,
-		expectVal:  make(map[GameState]float32, prealloc),
+		nfa:             nfa,
+		scorer:          NewNFAScorer(nfa, previewLen),
+		previewLen:      previewLen,
+		value:           make(map[GameState]int, prealloc),
+		recentlyChanged: make([]valueChange, 0, prealloc),
 	}
 
 	var filteredStates []combo4.State
@@ -101,29 +111,30 @@ func NewMDP(previewLen int) (*MDP, error) {
 	}()
 
 	for gState := range stableCh {
-		mdp.expectVal[gState] = 1
+		mdp.value[gState] = 1
 	}
 
-	mdp.policy = make(map[GameState]combo4.State, len(mdp.expectVal))
+	mdp.policy = make(map[GameState]combo4.State, len(mdp.value))
 	mdp.UpdatePolicy()
 	return mdp, nil
 }
 
-// isStable is used to compute the initial expectVals.
-// A GameState is considered stable if all possible sequences of previewLen
-// can be consumed.
-func (m *MDP) isStable(gState GameState) bool {
-	choices := m.nfa.NextStates(gState.State, gState.Current)
-	for _, choice := range choices {
-		endStates, consumed := m.nfa.EndStates(combo4.NewStateSet(choice), gState.Preview.Slice())
-		if consumed != m.previewLen {
-			continue
-		}
-		if m.scorer.inviableSeqs(endStates, gState.BagUsed) == 0 {
-			return true
-		}
+// initPolicy creates an initial policy based on what the scorer would do.
+func (m *MDP) initPolicy() {
+	m.policy = make(map[GameState]combo4.State, len(m.value))
+	d := NewScoreDecider(m.nfa, m.scorer)
+	for gState := range m.value {
+		choice := d.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed)
+		m.policy[gState] = *choice
 	}
-	return false
+}
+
+// isStable is used to compute the initial values.
+// A GameState is considered stable if the current + preview can be consumed.
+func (m *MDP) isStable(gState GameState) bool {
+	start := combo4.NewStateSet(m.nfa.NextStates(gState.State, gState.Current)...)
+	_, consumed := m.nfa.EndStates(start, gState.Preview.Slice())
+	return consumed == m.previewLen
 }
 
 func forEachSeq(bagUsed tetris.PieceSet, seqLen int, do func([]tetris.Piece)) {
@@ -145,24 +156,22 @@ func forEachSeqHelper(seq []tetris.Piece, bagUsed tetris.PieceSet, seqIdx int, d
 	}
 }
 
-const epsilon = 0.01
-
-// UpdatePolicy updates the policy based on  expected values and returns the
-// number of changes
+// UpdatePolicy updates the policy based on values and returns the
+// number of changes.
 func (m *MDP) UpdatePolicy() int {
 	var changed int
 
-	for gState := range m.expectVal {
+	for gState := range m.value {
 		choices := m.nfa.NextStates(gState.State, gState.Current)
 		if len(choices) == 1 {
 			m.policy[gState] = choices[0]
 		}
 
-		var bestExp float32
+		var bestVal int
 		var bestChoice combo4.State
 		for _, choice := range choices {
-			if exp := m.calcExpectValue(gState, choice); exp+epsilon > bestExp {
-				bestExp = exp
+			if v := m.calcValue(gState, choice); v > bestVal {
+				bestVal = v
 				bestChoice = choice
 			}
 		}
@@ -170,6 +179,7 @@ func (m *MDP) UpdatePolicy() int {
 		if m.policy[gState] != bestChoice {
 			changed++
 			m.policy[gState] = bestChoice
+			m.value[gState] = bestVal
 		}
 	}
 	return changed
@@ -190,23 +200,47 @@ func (m *MDP) Policy() (map[GameState]combo4.State, Scorer) {
 	return policy, m.scorer
 }
 
-// UpdateExpectedValues updates the expected values based on the current
-// expected values and policy. UpdateExpectedValues returns the number of
+// UpdateValues updates the expected values based on the current
+// expected values and policy. Updatevalueues returns the number of
 // values with significant change.
-func (m *MDP) UpdateExpectedValues() int {
-	var changed int
+//
+// Cutoff is used to shorten time it takes to converge. Expected values
+// are not calculated if they are higher than the cutoff. Use cutoff=-1 to
+// find the exact values. The idea is to first stabilize the policy for all
+// the lower values which are dependencies and then increase the cutoff.
+func (m *MDP) UpdateValues(cutoff int) int {
+	// Update the recently changed first.
+	for _, c := range m.recentlyChanged {
+		m.value[c.gState] = m.calcValue(c.gState, m.policy[c.gState])
+	}
+
+	if m.recentlyChanged == nil {
+		m.recentlyChanged = make([]valueChange, 0, len(m.value))
+	}
+	m.recentlyChanged = m.recentlyChanged[:0]
+
+	// Update all states.
 	for gState, choice := range m.policy {
-		before := m.expectVal[gState]
-		after := m.calcExpectValue(gState, choice)
-		if math.Abs(float64(before-after)) > epsilon {
-			changed++
-			m.expectVal[gState] = after
+		before := m.value[gState]
+		if before > cutoff && cutoff != -1 {
+			continue
+		}
+		after := m.calcValue(gState, choice)
+		if before != after {
+			m.value[gState] = after
+			abs := after - before
+			if after < before {
+				abs = before - after
+			}
+			m.recentlyChanged = append(m.recentlyChanged, valueChange{gState, abs})
 		}
 	}
-	return changed
+	// Prioritize the largest changes first in the next iteration.
+	sort.Slice(m.recentlyChanged, func(i, j int) bool { return m.recentlyChanged[i].change > m.recentlyChanged[j].change })
+	return len(m.recentlyChanged)
 }
 
-func (m *MDP) calcExpectValue(cur GameState, choice combo4.State) float32 {
+func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
 	var (
 		current        = cur.Preview.AtIndex(0)
 		previewShifted = cur.Preview.RemoveFirst()
@@ -218,7 +252,7 @@ func (m *MDP) calcExpectValue(cur GameState, choice combo4.State) float32 {
 	}
 	possibleNextPiece := bag.Inverted().Slice()
 
-	var totalSubExp float32
+	var totalSubExp int
 	for _, p := range possibleNextPiece {
 		var newBag tetris.PieceSet
 		if cur.BagUsed.Len() == 7 {
@@ -233,9 +267,9 @@ func (m *MDP) calcExpectValue(cur GameState, choice combo4.State) float32 {
 			Preview: previewShifted.SetIndex(m.previewLen-1, p),
 			BagUsed: newBag,
 		}
-		totalSubExp += m.expectVal[next]
+		totalSubExp += m.value[next]
 	}
-	return 1 + totalSubExp/float32(len(possibleNextPiece))
+	return 1 + totalSubExp/len(possibleNextPiece)
 }
 
 // GobEncode returns a Gob encoding of a MDP.
@@ -245,8 +279,8 @@ func (m *MDP) GobEncode() ([]byte, error) {
 	if err := encoder.Encode(&m.previewLen); err != nil {
 		return nil, fmt.Errorf("encoder.Encode(previewLen): %v", err)
 	}
-	if err := encoder.Encode(&m.expectVal); err != nil {
-		return nil, fmt.Errorf("encoder.Encode(expectVal): %v", err)
+	if err := encoder.Encode(&m.value); err != nil {
+		return nil, fmt.Errorf("encoder.Encode(value): %v", err)
 	}
 	return buf.Bytes(), nil
 }
@@ -259,12 +293,12 @@ func (m *MDP) GobDecode(b []byte) error {
 	if err := decoder.Decode(&m.previewLen); err != nil {
 		return fmt.Errorf("gob.Decode(previewLen): %v", err)
 	}
-	if err := decoder.Decode(&m.expectVal); err != nil {
-		return fmt.Errorf("gob.Decode(expectVal): %v", err)
+	if err := decoder.Decode(&m.value); err != nil {
+		return fmt.Errorf("gob.Decode(value): %v", err)
 	}
 	m.nfa = combo4.NewNFA(combo4.AllContinuousMoves())
 	m.scorer = NewNFAScorer(m.nfa, m.previewLen)
-	m.policy = make(map[GameState]combo4.State, len(m.expectVal))
+	m.policy = make(map[GameState]combo4.State, len(m.value))
 	m.UpdatePolicy()
 	return nil
 }

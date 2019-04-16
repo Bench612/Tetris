@@ -4,6 +4,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"os"
 	"sync"
@@ -15,8 +16,8 @@ import (
 )
 
 var (
-	numTrials     = flag.Int("num_trials", 100, "the number of trials to test each scorer with")
-	previewSize   = flag.Int("preview_size", 6, "the number of pieces you can see in the preview")
+	numTrials     = flag.Int("num_trials", 200, "the number of trials to test each scorer with")
+	previewSize   = flag.Int("preview_size", 4, "the number of pieces you can see in the preview")
 	deterministic = flag.Bool("deterministic", true, "whether the output is the same with each run")
 )
 
@@ -30,9 +31,23 @@ var decidersWithNames = [...]struct {
 	name    string
 	decider bot.Decider
 }{
+	{"Seq 3", bot.NewScoreDecider(nfa, bot.NewNFAScorer(nfa, 3))},
 	{"Seq 5", bot.NewScoreDecider(nfa, bot.NewNFAScorer(nfa, 5))},
-	{"Seq 6", bot.NewScoreDecider(nfa, bot.NewNFAScorer(nfa, 6))},
-	{"Seq 7", bot.NewScoreDecider(nfa, bot.NewNFAScorer(nfa, 7))},
+	{"MDP 5", newMDPDecider("mdp5.gob")},
+}
+
+func newMDPDecider(path string) bot.Decider {
+	bytes, err := ioutil.ReadFile(path)
+	if err != nil {
+		fmt.Printf("ioutil.ReadFile(%q): %v\n", path, err)
+		os.Exit(1)
+	}
+	mdp := &bot.MDP{}
+	if err := mdp.GobDecode(bytes); err != nil {
+		fmt.Printf("GobDecode failed: %v\n", err)
+		os.Exit(1)
+	}
+	return bot.NewMDPDecider(mdp)
 }
 
 /* Sample Output
@@ -62,11 +77,6 @@ func main() {
 		nfaCounts [len(checkpoints)]int
 	)
 
-	var deciders [len(decidersWithNames)]bot.Decider
-	for idx := range deciders {
-		deciders[idx] = decidersWithNames[idx].decider
-	}
-
 	piecesPerTrial := checkpoints[len(checkpoints)-1]
 
 	// Add the totals and counts for each decider.
@@ -78,7 +88,7 @@ func main() {
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		for i := 0; i < len(deciders)**numTrials; i++ {
+		for i := 0; i < *numTrials*len(decidersWithNames); i++ {
 			qItem := <-decidersCh
 			for cIdx, c := range checkpoints {
 				if qItem.consumed >= c {
@@ -113,7 +123,7 @@ func main() {
 		}
 		queue := tetris.RandPieces(piecesPerTrial + *previewSize + 1)
 
-		for dIdx, d := range deciders {
+		for dIdx, d := range decidersWithNames {
 			dIdx, d := dIdx, d // Capture range variable.
 			maxConcurrency <- true
 			go func() {
@@ -121,7 +131,7 @@ func main() {
 
 				input := make(chan tetris.Piece, 1)
 
-				output := d.StartGame(combo4.LeftI, queue[0], queue[1:*previewSize+1], input)
+				output := bot.StartGame(d.decider, combo4.LeftI, queue[0], queue[1:*previewSize+1], input)
 				var consumed int
 				if <-output != nil {
 					consumed++
@@ -158,8 +168,8 @@ func main() {
 	fmt.Fprintln(w, title)
 
 	const fmtString = "\t%.1f%%"
-	for idx := range deciders {
-		row := scorersWithNames[idx].name
+	for idx, d := range decidersWithNames {
+		row := d.name
 		row += fmt.Sprintf("\t%.1f", float64(totals[idx])/float64(*numTrials))
 		for _, count := range counts[idx] {
 			row += fmt.Sprintf(fmtString, float64(count*100)/float64(*numTrials))

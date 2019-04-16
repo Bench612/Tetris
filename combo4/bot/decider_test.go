@@ -8,9 +8,10 @@ import (
 )
 
 func BenchmarkNextState(b *testing.B) {
-	states := combo4.NewNFA(combo4.AllContinuousMoves()).States().Slice()
+	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	states := nfa.States().Slice()
 
-	d := NewDecider(NewNFAScorer(nfa, 7))
+	d := NewScoreDecider(nfa, NewNFAScorer(nfa, 7))
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
@@ -22,20 +23,18 @@ func BenchmarkNextState(b *testing.B) {
 	}
 }
 
-func TestNFAScorerSucessRate(t *testing.T) {
+func testSucessRate(t *testing.T, d Decider, want float64) {
 	const (
 		trials         = 100
 		piecesPerTrial = 100
 	)
-
-	rand.Seed(1)
-	d := NewDecider(NewNFAScorer(nfa, 7))
+	rand.Seed(110)
 
 	var incomplete int
 	for t := 0; t < trials; t++ {
 		queue := tetris.RandPieces(piecesPerTrial)
 		input := make(chan tetris.Piece, 1)
-		output := d.StartGame(combo4.LeftI, queue[0], queue[1:7], input)
+		output := StartGame(d, combo4.LeftI, queue[0], queue[1:7], input)
 		for _, p := range queue[7:] {
 			input <- p
 			if <-output == nil {
@@ -44,7 +43,14 @@ func TestNFAScorerSucessRate(t *testing.T) {
 			}
 		}
 	}
-	if ratio := 1 - float64(incomplete)/trials; ratio < 0.7 {
-		t.Errorf("Decider has win rate=%.2f, want at least 0.7", ratio)
+	if ratio := 1 - float64(incomplete)/trials; ratio < want {
+		t.Errorf("Decider has win rate=%.2f, want at least %.2f", ratio, want)
 	}
+}
+
+func TestNFASucessRate(t *testing.T) {
+	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	d := NewScoreDecider(nfa, NewNFAScorer(nfa, 7))
+
+	testSucessRate(t, d, 0.7)
 }
