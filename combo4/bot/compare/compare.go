@@ -26,17 +26,17 @@ var checkpoints = [...]int{100, 500, 1000, 2000, 5000}
 
 var nfa = combo4.NewNFA(combo4.AllContinuousMoves())
 
-// The Deciders to test.
-var decidersWithNames = [...]struct {
-	name    string
-	decider bot.Decider
+// The Policies to test.
+var policiesWithNames = [...]struct {
+	name   string
+	policy bot.Policy
 }{
-	{"Seq 3", bot.NewScoreDecider(nfa, bot.NewNFAScorer(nfa, 3))},
-	{"Seq 5", bot.NewScoreDecider(nfa, bot.NewNFAScorer(nfa, 5))},
-	{"MDP 5", newMDPDecider("mdp5.gob")},
+	{"Seq 3", bot.PolicyFromScorer(nfa, bot.NewNFAScorer(nfa, 3))},
+	{"Seq 6", bot.PolicyFromScorer(nfa, bot.NewNFAScorer(nfa, 5))},
+	{"MDP 5", newMDPPolicy("mdp5.gob")},
 }
 
-func newMDPDecider(path string) bot.Decider {
+func newMDPPolicy(path string) bot.Policy {
 	bytes, err := ioutil.ReadFile(path)
 	if err != nil {
 		fmt.Printf("ioutil.ReadFile(%q): %v\n", path, err)
@@ -47,7 +47,7 @@ func newMDPDecider(path string) bot.Decider {
 		fmt.Printf("GobDecode failed: %v\n", err)
 		os.Exit(1)
 	}
-	return bot.NewMDPDecider(mdp)
+	return bot.PolicyFromMDP(mdp)
 }
 
 /* Sample Output
@@ -70,8 +70,8 @@ func main() {
 	}
 
 	var (
-		totals [len(decidersWithNames)]int
-		counts [len(decidersWithNames)][len(checkpoints)]int
+		totals [len(policiesWithNames)]int
+		counts [len(policiesWithNames)][len(checkpoints)]int
 
 		nfaTotal  int
 		nfaCounts [len(checkpoints)]int
@@ -84,12 +84,12 @@ func main() {
 		dIdx     int
 		consumed int
 	}
-	decidersCh := make(chan queueItem, 30)
+	policiesCh := make(chan queueItem, 30)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
-		for i := 0; i < *numTrials*len(decidersWithNames); i++ {
-			qItem := <-decidersCh
+		for i := 0; i < *numTrials*len(policiesWithNames); i++ {
+			qItem := <-policiesCh
 			for cIdx, c := range checkpoints {
 				if qItem.consumed >= c {
 					counts[qItem.dIdx][cIdx]++
@@ -123,7 +123,7 @@ func main() {
 		}
 		queue := tetris.RandPieces(piecesPerTrial + *previewSize + 1)
 
-		for dIdx, d := range decidersWithNames {
+		for dIdx, d := range policiesWithNames {
 			dIdx, d := dIdx, d // Capture range variable.
 			maxConcurrency <- true
 			go func() {
@@ -131,7 +131,7 @@ func main() {
 
 				input := make(chan tetris.Piece, 1)
 
-				output := bot.StartGame(d.decider, combo4.LeftI, queue[0], queue[1:*previewSize+1], input)
+				output := bot.StartGame(d.policy, combo4.LeftI, queue[0], queue[1:*previewSize+1], input)
 				var consumed int
 				if <-output != nil {
 					consumed++
@@ -143,7 +143,7 @@ func main() {
 						consumed++
 					}
 				}
-				decidersCh <- queueItem{dIdx: dIdx, consumed: consumed}
+				policiesCh <- queueItem{dIdx: dIdx, consumed: consumed}
 			}()
 		}
 
@@ -168,7 +168,7 @@ func main() {
 	fmt.Fprintln(w, title)
 
 	const fmtString = "\t%.1f%%"
-	for idx, d := range decidersWithNames {
+	for idx, d := range policiesWithNames {
 		row := d.name
 		row += fmt.Sprintf("\t%.1f", float64(totals[idx])/float64(*numTrials))
 		for _, count := range counts[idx] {

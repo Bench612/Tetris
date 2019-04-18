@@ -5,20 +5,21 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"math"
 	"sort"
 	"sync"
 	"tetris"
 	"tetris/combo4"
+	"time"
 )
 
 // MDP represents a Markov Decision Process but only considers the game states
 // that are considered "stable". That is, states with a piece held and are not
 // swap restricted.
 type MDP struct {
-	nfa    *combo4.NFA
-	scorer *NFAScorer
-
+	nfa        *combo4.NFA
 	previewLen int
 
 	// A map from GameState to the next chosen state.
@@ -27,13 +28,10 @@ type MDP struct {
 	// The expected value for how many combos will occur minus previewLen.
 	// With error margin up to 1.
 	value map[GameState]int
-
-	// Used for optimization internally.
-	recentlyChanged []valueChange
 }
 
 // GameState encapsulates all information about the current game state while
-// doing 4 wide combos.
+// doing 4 wide combos. GameState can be used as map key.
 type GameState struct {
 	State   combo4.State
 	Current tetris.Piece
@@ -41,29 +39,20 @@ type GameState struct {
 	BagUsed tetris.PieceSet
 }
 
-type valueChange struct {
-	gState GameState
-	change int
-}
-
 // NewMDP constructs a new MDP.
 func NewMDP(previewLen int) (*MDP, error) {
 	if previewLen > 7 || previewLen < 1 {
 		return nil, errors.New("previewLen must be between 1 and 7")
 	}
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 
-	prealloc := int(128 * 28 * 7 * 7 * math.Pow(2.6, float64(previewLen)))
-	mdp := &MDP{
-		nfa:             nfa,
-		scorer:          NewNFAScorer(nfa, previewLen),
-		previewLen:      previewLen,
-		value:           make(map[GameState]int, prealloc),
-		recentlyChanged: make([]valueChange, 0, prealloc),
+	m := &MDP{
+		nfa:        combo4.NewNFA(combo4.AllContinuousMoves()),
+		previewLen: previewLen,
+		value:      make(map[GameState]int, int(128*28*7*7*math.Pow(2.6, float64(previewLen)))),
 	}
 
 	var filteredStates []combo4.State
-	for state := range nfa.States() {
+	for state := range m.nfa.States() {
 		// Don't include states that usually only show up in the beginning.
 		if state.SwapRestricted || state.Hold == tetris.EmptyPiece {
 			continue
@@ -99,7 +88,7 @@ func NewMDP(previewLen int) (*MDP, error) {
 							Preview: preview,
 							BagUsed: bagUsed,
 						}
-						if mdp.isStable(gState) {
+						if m.isStable(gState) {
 							stableCh <- gState
 						}
 					}
@@ -111,18 +100,18 @@ func NewMDP(previewLen int) (*MDP, error) {
 	}()
 
 	for gState := range stableCh {
-		mdp.value[gState] = 1
+		m.value[gState] = 1
 	}
 
-	mdp.policy = make(map[GameState]combo4.State, len(mdp.value))
-	mdp.UpdatePolicy()
-	return mdp, nil
+	m.initPolicy()
+	return m, nil
 }
 
 // initPolicy creates an initial policy based on what the scorer would do.
+// initPolicy assumes the scores have been initialized.
 func (m *MDP) initPolicy() {
 	m.policy = make(map[GameState]combo4.State, len(m.value))
-	d := NewScoreDecider(m.nfa, m.scorer)
+	d := PolicyFromScorer(m.nfa, NewNFAScorer(m.nfa, m.previewLen))
 	for gState := range m.value {
 		choice := d.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed)
 		m.policy[gState] = *choice
@@ -156,33 +145,40 @@ func forEachSeqHelper(seq []tetris.Piece, bagUsed tetris.PieceSet, seqIdx int, d
 	}
 }
 
-// UpdatePolicy updates the policy based on values and returns the
-// number of changes.
-func (m *MDP) UpdatePolicy() int {
+// UpdatePolicy updates the policy based on values and returns whether
+// it has changed.
+func (m *MDP) UpdatePolicy() bool {
 	var changed int
 
-	for gState := range m.value {
+	for gState, currentChoice := range m.policy {
 		choices := m.nfa.NextStates(gState.State, gState.Current)
 		if len(choices) == 1 {
 			m.policy[gState] = choices[0]
 		}
 
-		var bestVal int
-		var bestChoice combo4.State
+		// Use the current choice in case of a tie-break.
+		// This way the policy changes minimally.
+		bestVal := m.calcValue(gState, currentChoice)
+		bestChoice := currentChoice
 		for _, choice := range choices {
+			if choice == currentChoice {
+				continue
+			}
 			if v := m.calcValue(gState, choice); v > bestVal {
 				bestVal = v
 				bestChoice = choice
 			}
 		}
 
-		if m.policy[gState] != bestChoice {
+		if currentChoice != bestChoice {
 			changed++
 			m.policy[gState] = bestChoice
+			// Update the corresponding values to the new estimates.
 			m.value[gState] = bestVal
 		}
 	}
-	return changed
+	log.Printf("Updated policy with %d changes", changed)
+	return changed != 0
 }
 
 // Policy returns the MDP's policy. The given map is used and the Scorer
@@ -197,47 +193,64 @@ func (m *MDP) Policy() (map[GameState]combo4.State, Scorer) {
 			policy[gState] = choice
 		}
 	}
-	return policy, m.scorer
+	return policy, NewNFAScorer(m.nfa, m.previewLen)
+}
+
+type valueChange struct {
+	gState     GameState
+	policy     combo4.State
+	valCurrent int
+	valChange  int // Should always be positive
 }
 
 // UpdateValues updates the expected values based on the current
-// expected values and policy. Updatevalueues returns the number of
-// values with significant change.
-//
-// Cutoff is used to shorten time it takes to converge. Expected values
-// are not calculated if they are higher than the cutoff. Use cutoff=-1 to
-// find the exact values. The idea is to first stabilize the policy for all
-// the lower values which are dependencies and then increase the cutoff.
-func (m *MDP) UpdateValues(cutoff int) int {
-	// Update the recently changed first.
-	for _, c := range m.recentlyChanged {
-		m.value[c.gState] = m.calcValue(c.gState, m.policy[c.gState])
+// expected values and policy. UpdateValues returns whether anything got
+// changed.
+func (m *MDP) UpdateValues() bool {
+	toUpdate := make([]valueChange, 0, len(m.value))
+	for gState, v := range m.value {
+		toUpdate = append(toUpdate, valueChange{
+			gState:     gState,
+			policy:     m.policy[gState],
+			valCurrent: v,
+			valChange:  0,
+		})
 	}
 
-	if m.recentlyChanged == nil {
-		m.recentlyChanged = make([]valueChange, 0, len(m.value))
-	}
-	m.recentlyChanged = m.recentlyChanged[:0]
+	var hasChanged bool
+	for iter := 0; len(toUpdate) > 0; iter++ {
 
-	// Update all states.
-	for gState, choice := range m.policy {
-		before := m.value[gState]
-		if before > cutoff && cutoff != -1 {
-			continue
-		}
-		after := m.calcValue(gState, choice)
-		if before != after {
-			m.value[gState] = after
-			abs := after - before
-			if after < before {
-				abs = before - after
+		sort.Slice(toUpdate, func(i, j int) bool {
+			// Prioritize high value changes.
+			if toUpdate[i].valChange != toUpdate[j].valChange {
+				return toUpdate[i].valChange > toUpdate[j].valChange
 			}
-			m.recentlyChanged = append(m.recentlyChanged, valueChange{gState, abs})
+			// Prioritize small current values.
+			return toUpdate[i].valCurrent < toUpdate[j].valCurrent
+		})
+		if toUpdate[len(toUpdate)-1].valChange < 0 {
+			panic("value decreased. should never happen")
 		}
+
+		var changes int
+		for idx := range toUpdate {
+			c := &toUpdate[idx]
+
+			new := m.calcValue(c.gState, c.policy)
+			if old := c.valCurrent; new != old {
+				changes++
+				m.value[c.gState] = new
+				c.valCurrent = new
+				c.valChange = new - old // Difference should always be positive
+			}
+		}
+		log.Printf("Updated %d values (#%d)", changes, iter)
+		if changes == 0 {
+			break
+		}
+		hasChanged = true
 	}
-	// Prioritize the largest changes first in the next iteration.
-	sort.Slice(m.recentlyChanged, func(i, j int) bool { return m.recentlyChanged[i].change > m.recentlyChanged[j].change })
-	return len(m.recentlyChanged)
+	return hasChanged
 }
 
 func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
@@ -269,7 +282,50 @@ func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
 		}
 		totalSubExp += m.value[next]
 	}
-	return 1 + totalSubExp/len(possibleNextPiece)
+	return 1 + (totalSubExp)/len(possibleNextPiece)
+}
+
+// Update updates the MDP until it is at an optimal policy while periodically
+// saving progress to the given filePath.
+func (m *MDP) Update(filePath string) error {
+	for i := 0; ; i++ {
+		start := time.Now()
+		valueChanges := m.UpdateValues()
+		log.Printf("UpdatedValues (#%d) in %v", i, time.Since(start))
+		if valueChanges {
+			if err := m.save(filePath); err != nil {
+				return fmt.Errorf("save failed: %v", err)
+			}
+		} else {
+			return nil
+		}
+
+		start = time.Now()
+		policyChanges := m.UpdatePolicy()
+		log.Printf("UpdatePolicy (#%d) in %v", i, time.Since(start))
+		if !policyChanges {
+			return nil
+		}
+	}
+}
+
+// save saves the MDP to the filePath or returns nil
+// if the path is empty.
+func (m *MDP) save(filePath string) error {
+	if filePath == "" {
+		return nil
+	}
+
+	start := time.Now()
+	bytes, err := m.GobEncode()
+	if err != nil {
+		return fmt.Errorf("encode failed: %v", err)
+	}
+	if err := ioutil.WriteFile(filePath, []byte(bytes), 0644); err != nil {
+		return fmt.Errorf("WriteFile failed: %v", err)
+	}
+	log.Printf("Updated file in %v\n", time.Since(start))
+	return nil
 }
 
 // GobEncode returns a Gob encoding of a MDP.
@@ -297,8 +353,7 @@ func (m *MDP) GobDecode(b []byte) error {
 		return fmt.Errorf("gob.Decode(value): %v", err)
 	}
 	m.nfa = combo4.NewNFA(combo4.AllContinuousMoves())
-	m.scorer = NewNFAScorer(m.nfa, m.previewLen)
-	m.policy = make(map[GameState]combo4.State, len(m.value))
+	m.initPolicy()
 	m.UpdatePolicy()
 	return nil
 }

@@ -6,20 +6,20 @@ import (
 	"tetris/combo4"
 )
 
-// Decider picks the next best state.
-type Decider interface {
+// Policy determines the next state.
+type Policy interface {
 	NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State
 }
 
-// scoreDecider picks the next best state based on a Scorer.
-type scoreDecider struct {
+// scorePolicy picks the next best state based on a Scorer.
+type scorePolicy struct {
 	nfa    *combo4.NFA
 	scorer Scorer
 }
 
-// NewScoreDecider creates a new Decider based a Scorer.
-func NewScoreDecider(nfa *combo4.NFA, scorer Scorer) Decider {
-	return &scoreDecider{
+// PolicyFromScorer creates a new Policy based a Scorer.
+func PolicyFromScorer(nfa *combo4.NFA, scorer Scorer) Policy {
+	return &scorePolicy{
 		nfa:    nfa,
 		scorer: scorer,
 	}
@@ -27,8 +27,8 @@ func NewScoreDecider(nfa *combo4.NFA, scorer Scorer) Decider {
 
 // NextState returns the "best" possible next state or nil if there are no
 // possible moves.
-func (d *scoreDecider) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
-	choices := d.nfa.NextStates(initial, current)
+func (p *scorePolicy) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
+	choices := p.nfa.NextStates(initial, current)
 	switch len(choices) {
 	case 0:
 		return nil
@@ -42,7 +42,7 @@ func (d *scoreDecider) NextState(initial combo4.State, current tetris.Piece, pre
 	for idx, choice := range choices {
 		idx, choice := idx, choice // Capture range variables.
 		go func() {
-			scores[idx] = d.scorer.Score(choice, preview, endBagUsed)
+			scores[idx] = p.scorer.Score(choice, preview, endBagUsed)
 			wg.Done()
 		}()
 	}
@@ -69,7 +69,7 @@ func (d *scoreDecider) NextState(initial combo4.State, current tetris.Piece, pre
 //
 // StartGame panics if a piece that does not follow the 7 bag randomizer is
 // added to the input channel.
-func StartGame(d Decider, initial combo4.Field4x4, current tetris.Piece, next []tetris.Piece, input chan tetris.Piece) chan *combo4.State {
+func StartGame(pol Policy, initial combo4.Field4x4, current tetris.Piece, next []tetris.Piece, input chan tetris.Piece) chan *combo4.State {
 	cpy := make([]tetris.Piece, len(next))
 	copy(cpy, next)
 	next = cpy
@@ -88,7 +88,7 @@ func StartGame(d Decider, initial combo4.Field4x4, current tetris.Piece, next []
 		defer close(output)
 
 		// Output the first move.
-		state := d.NextState(*state, current, next, bag)
+		state := pol.NextState(*state, current, next, bag)
 		output <- state
 
 		for p := range input {
@@ -116,7 +116,7 @@ func StartGame(d Decider, initial combo4.Field4x4, current tetris.Piece, next []
 			}
 			bag = bag.Add(p)
 
-			state = d.NextState(*state, current, next, bag)
+			state = pol.NextState(*state, current, next, bag)
 			output <- state
 		}
 	}()
@@ -124,30 +124,30 @@ func StartGame(d Decider, initial combo4.Field4x4, current tetris.Piece, next []
 	return output
 }
 
-type mdpDecider struct {
-	policy         map[GameState]combo4.State
-	defaultDecider Decider
+type mdpPolicy struct {
+	policy        map[GameState]combo4.State
+	defaultPolicy Policy
 }
 
-// NewMDPDecider returns a new Decider based on an MDP.
-func NewMDPDecider(mdp *MDP) Decider {
+// PolicyFromMDP returns a new Policy based on an MDP.
+func PolicyFromMDP(mdp *MDP) Policy {
 	policy, scorer := mdp.Policy()
-	return &mdpDecider{
-		policy:         policy,
-		defaultDecider: NewScoreDecider(combo4.NewNFA(combo4.AllContinuousMoves()), scorer),
+	return &mdpPolicy{
+		policy:        policy,
+		defaultPolicy: PolicyFromScorer(combo4.NewNFA(combo4.AllContinuousMoves()), scorer),
 	}
 }
 
-func (d *mdpDecider) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
+func (p *mdpPolicy) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
 	gameState := GameState{
 		State:   initial,
 		Current: current,
 		Preview: tetris.MustSeq(preview),
 		BagUsed: endBagUsed,
 	}
-	if nextState, ok := d.policy[gameState]; ok {
+	if nextState, ok := p.policy[gameState]; ok {
 		copy := nextState
 		return &copy
 	}
-	return d.defaultDecider.NextState(initial, current, preview, endBagUsed)
+	return p.defaultPolicy.NextState(initial, current, preview, endBagUsed)
 }

@@ -11,7 +11,7 @@ func BenchmarkNextState(b *testing.B) {
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 	states := nfa.States().Slice()
 
-	d := NewScoreDecider(nfa, NewNFAScorer(nfa, 7))
+	p := PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
@@ -19,11 +19,11 @@ func BenchmarkNextState(b *testing.B) {
 		queue := tetris.RandPieces(7)
 		var bag tetris.PieceSet
 
-		d.NextState(randState, queue[0], queue[1:], bag)
+		p.NextState(randState, queue[0], queue[1:], bag)
 	}
 }
 
-func testSucessRate(t *testing.T, d Decider, want float64) {
+func testPolicySucessRate(t *testing.T, p Policy, want float64) {
 	const (
 		trials         = 100
 		piecesPerTrial = 100
@@ -34,7 +34,7 @@ func testSucessRate(t *testing.T, d Decider, want float64) {
 	for t := 0; t < trials; t++ {
 		queue := tetris.RandPieces(piecesPerTrial)
 		input := make(chan tetris.Piece, 1)
-		output := StartGame(d, combo4.LeftI, queue[0], queue[1:7], input)
+		output := StartGame(p, combo4.LeftI, queue[0], queue[1:7], input)
 		for _, p := range queue[7:] {
 			input <- p
 			if <-output == nil {
@@ -50,7 +50,5 @@ func testSucessRate(t *testing.T, d Decider, want float64) {
 
 func TestNFASucessRate(t *testing.T) {
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
-	d := NewScoreDecider(nfa, NewNFAScorer(nfa, 7))
-
-	testSucessRate(t, d, 0.7)
+	testPolicySucessRate(t, PolicyFromScorer(nfa, NewNFAScorer(nfa, 7)), 0.7)
 }
