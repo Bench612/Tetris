@@ -12,9 +12,25 @@ func BenchmarkNewMDP3(b *testing.B) {
 	}
 }
 
-func BenchmarkMDPUpdate(b *testing.B) {
+func BenchmarkMDP1Update(b *testing.B) {
+	benchmarkMDPUpdate(b, 1)
+}
+
+func BenchmarkMDP2Update(b *testing.B) {
+	benchmarkMDPUpdate(b, 2)
+}
+
+func BenchmarkMDP3UpdateValues(b *testing.B) {
+	mdp, err := NewMDP(3)
+	if err != nil {
+		b.Fatalf("NewMDP: %v", err)
+	}
+	mdp.UpdateValues()
+}
+
+func benchmarkMDPUpdate(b *testing.B, previewLen int) {
 	for n := 0; n < b.N; n++ {
-		mdp, err := NewMDP(1)
+		mdp, err := NewMDP(previewLen)
 		if err != nil {
 			b.Fatalf("NewMDP: %v", err)
 		}
@@ -30,7 +46,25 @@ func BenchmarkMDPUpdate(b *testing.B) {
 	}
 }
 
-func TestUpdateValues(t *testing.T) {
+func TestMDPUpdate(t *testing.T) {
+	t.Parallel()
+	mdp, err := NewMDP(1)
+	if err != nil {
+		t.Fatalf("NewMDP: %v", err)
+	}
+	mdp.Update("")
+	var maxVal int
+	for _, v := range mdp.value {
+		if v > maxVal {
+			maxVal = v
+		}
+	}
+	if maxVal != 44 {
+		t.Errorf("Expected maximum value to be 44")
+	}
+}
+
+func TestMDPUpdateValues(t *testing.T) {
 	t.Parallel()
 	mdp, err := NewMDP(1)
 	if err != nil {
@@ -39,21 +73,21 @@ func TestUpdateValues(t *testing.T) {
 	mdp.UpdateValues()
 	// Trying to update the values again should show no change since the
 	// first one should iterate until equilibrium.
-	if mdp.UpdateValues() {
+	if mdp.UpdateValues() != 0 {
 		t.Errorf("2nd UpdateValues call had changes")
 	}
 }
 
-func TestUpdatePolicy(t *testing.T) {
+func TestMDPUpdatePolicy(t *testing.T) {
 	t.Parallel()
 	mdp, err := NewMDP(1)
 	if err != nil {
 		t.Fatalf("NewMDP: %v", err)
 	}
 	mdp.UpdateValues()
-	for mdp.UpdatePolicy() {
+	for mdp.UpdatePolicy() != 0 {
 	}
-	if mdp.UpdatePolicy() {
+	if mdp.UpdatePolicy() != 0 {
 		t.Errorf("UpdatePolicy call after no changes had changes")
 	}
 }

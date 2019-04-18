@@ -8,7 +8,6 @@ import (
 	"io/ioutil"
 	"log"
 	"math"
-	"sort"
 	"sync"
 	"tetris"
 	"tetris/combo4"
@@ -18,6 +17,8 @@ import (
 // MDP represents a Markov Decision Process but only considers the game states
 // that are considered "stable". That is, states with a piece held and are not
 // swap restricted.
+//
+// MDP is *NOT* safe for concurrent use.
 type MDP struct {
 	nfa        *combo4.NFA
 	previewLen int
@@ -145,9 +146,9 @@ func forEachSeqHelper(seq []tetris.Piece, bagUsed tetris.PieceSet, seqIdx int, d
 	}
 }
 
-// UpdatePolicy updates the policy based on values and returns whether
-// it has changed.
-func (m *MDP) UpdatePolicy() bool {
+// UpdatePolicy updates the policy based on values and returns how many
+// policy changes there were.
+func (m *MDP) UpdatePolicy() int {
 	var changed int
 
 	for gState, currentChoice := range m.policy {
@@ -178,7 +179,7 @@ func (m *MDP) UpdatePolicy() bool {
 		}
 	}
 	log.Printf("Updated policy with %d changes", changed)
-	return changed != 0
+	return changed
 }
 
 // Policy returns the MDP's policy. The given map is used and the Scorer
@@ -197,63 +198,99 @@ func (m *MDP) Policy() (map[GameState]combo4.State, Scorer) {
 }
 
 type valueChange struct {
-	gState     GameState
-	policy     combo4.State
+	gState GameState
+
+	// Used to calculate the next value.
+	// The next value is 1 + sum(dependencies) / possibilities
+	possibilities int
+	dependencies  []*int
+
+	// It is important that this is updated atomically. So that valCurrent
+	// never decreases. valCurrent may be concurrently modified and read.
+	// But will still reach equilibrium as long as it does not decrease or
+	// overly increase.
 	valCurrent int
-	valChange  int // Should always be positive
 }
 
+// Number of go-routines.
+const concurrency = 8
+
 // UpdateValues updates the expected values based on the current
-// expected values and policy. UpdateValues returns whether anything got
-// changed.
-func (m *MDP) UpdateValues() bool {
-	toUpdate := make([]valueChange, 0, len(m.value))
+// expected values and policy. UpdateValues returns the number of values
+// that changed.
+func (m *MDP) UpdateValues() int {
+	cMap := make(map[GameState]*valueChange, len(m.value))
+	vals := make([]*valueChange, 0, len(m.value))
 	for gState, v := range m.value {
-		toUpdate = append(toUpdate, valueChange{
+		c := &valueChange{
 			gState:     gState,
-			policy:     m.policy[gState],
 			valCurrent: v,
-			valChange:  0,
-		})
-	}
-
-	var hasChanged bool
-	for iter := 0; len(toUpdate) > 0; iter++ {
-
-		sort.Slice(toUpdate, func(i, j int) bool {
-			// Prioritize high value changes.
-			if toUpdate[i].valChange != toUpdate[j].valChange {
-				return toUpdate[i].valChange > toUpdate[j].valChange
-			}
-			// Prioritize small current values.
-			return toUpdate[i].valCurrent < toUpdate[j].valCurrent
-		})
-		if toUpdate[len(toUpdate)-1].valChange < 0 {
-			panic("value decreased. should never happen")
 		}
-
-		var changes int
-		for idx := range toUpdate {
-			c := &toUpdate[idx]
-
-			new := m.calcValue(c.gState, c.policy)
-			if old := c.valCurrent; new != old {
-				changes++
-				m.value[c.gState] = new
-				c.valCurrent = new
-				c.valChange = new - old // Difference should always be positive
+		cMap[gState] = c
+		vals = append(vals, c)
+	}
+	for _, c := range vals {
+		possibilities := m.possibilities(c.gState, m.policy[c.gState])
+		for _, poss := range possibilities {
+			if dep, ok := cMap[poss]; ok {
+				c.dependencies = append(c.dependencies, &dep.valCurrent)
 			}
+		}
+		c.possibilities = len(possibilities)
+	}
+	cMap = nil // No longer needed.
+
+	for iter := 0; ; iter++ {
+		changesCh := make(chan int, 1)
+		for i := 0; i < concurrency; i++ {
+			start := i * len(vals) / concurrency
+			end := (i + 1) * len(vals) / concurrency
+			go func() {
+				var changes int
+				for _, c := range vals[start:end] {
+					// Update val based on depdendencies.
+					// Even though dependencies may change from different
+					// go-routines, this is fine because it is okay to read
+					// either version of the value.
+					var totalVal int
+					for _, d := range c.dependencies {
+						totalVal += *d
+					}
+					newVal := 1 + totalVal/c.possibilities
+
+					prevVal := c.valCurrent
+					if newVal != prevVal {
+						changes++
+						c.valCurrent = newVal
+					}
+				}
+				changesCh <- changes
+			}()
+		}
+		var changes int
+		for i := 0; i < concurrency; i++ {
+			changes += <-changesCh
 		}
 		log.Printf("Updated %d values (#%d)", changes, iter)
 		if changes == 0 {
 			break
 		}
-		hasChanged = true
 	}
-	return hasChanged
+
+	// Update the values map.
+	var totalChanges int
+	for _, c := range vals {
+		old := m.value[c.gState]
+		if old != c.valCurrent {
+			m.value[c.gState] = c.valCurrent
+			totalChanges++
+		}
+	}
+
+	return totalChanges
 }
 
-func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
+func (m *MDP) possibilities(cur GameState, choice combo4.State) []GameState {
 	var (
 		current        = cur.Preview.AtIndex(0)
 		previewShifted = cur.Preview.RemoveFirst()
@@ -264,8 +301,7 @@ func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
 		bag = 0
 	}
 	possibleNextPiece := bag.Inverted().Slice()
-
-	var totalSubExp int
+	possibilities := make([]GameState, 0, len(possibleNextPiece))
 	for _, p := range possibleNextPiece {
 		var newBag tetris.PieceSet
 		if cur.BagUsed.Len() == 7 {
@@ -274,15 +310,23 @@ func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
 			newBag = bag.Add(p)
 		}
 
-		next := GameState{
+		possibilities = append(possibilities, GameState{
 			State:   choice,
 			Current: current,
 			Preview: previewShifted.SetIndex(m.previewLen-1, p),
 			BagUsed: newBag,
-		}
-		totalSubExp += m.value[next]
+		})
 	}
-	return 1 + (totalSubExp)/len(possibleNextPiece)
+	return possibilities
+}
+
+func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
+	var totalVal int
+	poss := m.possibilities(cur, choice)
+	for _, next := range poss {
+		totalVal += m.value[next]
+	}
+	return 1 + totalVal/len(poss)
 }
 
 // Update updates the MDP until it is at an optimal policy while periodically
@@ -291,8 +335,8 @@ func (m *MDP) Update(filePath string) error {
 	for i := 0; ; i++ {
 		start := time.Now()
 		valueChanges := m.UpdateValues()
-		log.Printf("UpdatedValues (#%d) in %v", i, time.Since(start))
-		if valueChanges {
+		log.Printf("UpdatedValues (iteration=#%d) with %d total changes in %v", i, valueChanges, time.Since(start))
+		if valueChanges != 0 {
 			if err := m.save(filePath); err != nil {
 				return fmt.Errorf("save failed: %v", err)
 			}
@@ -303,7 +347,7 @@ func (m *MDP) Update(filePath string) error {
 		start = time.Now()
 		policyChanges := m.UpdatePolicy()
 		log.Printf("UpdatePolicy (#%d) in %v", i, time.Since(start))
-		if !policyChanges {
+		if policyChanges == 0 {
 			return nil
 		}
 	}
