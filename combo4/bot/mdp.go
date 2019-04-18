@@ -197,9 +197,9 @@ func (m *MDP) Policy() (map[GameState]combo4.State, Scorer) {
 	return policy, NewNFAScorer(m.nfa, m.previewLen)
 }
 
+// valueChange is used for efficient updating of values given a particular
+// policy.
 type valueChange struct {
-	gState GameState
-
 	// Used to calculate the next value.
 	// The next value is 1 + sum(dependencies) / possibilities
 	possibilities int
@@ -209,7 +209,7 @@ type valueChange struct {
 	// never decreases. valCurrent may be concurrently modified and read.
 	// But will still reach equilibrium as long as it does not decrease or
 	// overly increase.
-	valCurrent int
+	value int
 }
 
 // Number of go-routines.
@@ -219,21 +219,22 @@ const concurrency = 8
 // expected values and policy. UpdateValues returns the number of values
 // that changed.
 func (m *MDP) UpdateValues() int {
-	cMap := make(map[GameState]*valueChange, len(m.value))
-	vals := make([]*valueChange, 0, len(m.value))
+	var (
+		vals    = make([]*valueChange, 0, len(m.value))
+		gStates = make([]GameState, 0, len(m.value))             // Used for valueChange -> GameState
+		cMap    = make(map[GameState]*valueChange, len(m.value)) // Used for GameState -> valueChange
+	)
 	for gState, v := range m.value {
-		c := &valueChange{
-			gState:     gState,
-			valCurrent: v,
-		}
+		c := &valueChange{value: v}
 		cMap[gState] = c
 		vals = append(vals, c)
+		gStates = append(gStates, gState)
 	}
-	for _, c := range vals {
-		possibilities := m.possibilities(c.gState, m.policy[c.gState])
+	for gState, c := range cMap {
+		possibilities := m.possibilities(gState, m.policy[gState])
 		for _, poss := range possibilities {
 			if dep, ok := cMap[poss]; ok {
-				c.dependencies = append(c.dependencies, &dep.valCurrent)
+				c.dependencies = append(c.dependencies, &dep.value)
 			}
 		}
 		c.possibilities = len(possibilities)
@@ -258,10 +259,10 @@ func (m *MDP) UpdateValues() int {
 					}
 					newVal := 1 + totalVal/c.possibilities
 
-					prevVal := c.valCurrent
+					prevVal := c.value
 					if newVal != prevVal {
 						changes++
-						c.valCurrent = newVal
+						c.value = newVal
 					}
 				}
 				changesCh <- changes
@@ -279,10 +280,12 @@ func (m *MDP) UpdateValues() int {
 
 	// Update the values map.
 	var totalChanges int
-	for _, c := range vals {
-		old := m.value[c.gState]
-		if old != c.valCurrent {
-			m.value[c.gState] = c.valCurrent
+	for idx, c := range vals {
+		gState := gStates[idx]
+
+		old := m.value[gState]
+		if old != c.value {
+			m.value[gState] = c.value
 			totalChanges++
 		}
 	}
@@ -346,7 +349,7 @@ func (m *MDP) Update(filePath string) error {
 
 		start = time.Now()
 		policyChanges := m.UpdatePolicy()
-		log.Printf("UpdatePolicy (#%d) in %v", i, time.Since(start))
+		log.Printf("UpdatePolicy (iteration=#%d) with %d total changes in %v", i, policyChanges, time.Since(start))
 		if policyChanges == 0 {
 			return nil
 		}
