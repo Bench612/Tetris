@@ -29,6 +29,9 @@ type MDP struct {
 	// The expected value for how many combos will occur minus previewLen.
 	// With error margin up to 1.
 	value map[GameState]int
+
+	// The maximum value.
+	maxValue int
 }
 
 // GameState encapsulates all information about the current game state while
@@ -41,15 +44,24 @@ type GameState struct {
 }
 
 // NewMDP constructs a new MDP.
-func NewMDP(previewLen int) (*MDP, error) {
+// maxCombo is the maximum combo that we are about. Use -1 for no max.
+func NewMDP(previewLen, maxCombo int) (*MDP, error) {
 	if previewLen > 7 || previewLen < 1 {
 		return nil, errors.New("previewLen must be between 1 and 7")
+	}
+	if maxCombo <= previewLen && maxCombo != -1 {
+		return nil, errors.New("maxCombo must be greater than previewLen")
+	}
+	var maxValue = maxCombo - previewLen
+	if maxCombo == -1 {
+		maxValue = -1
 	}
 
 	m := &MDP{
 		nfa:        combo4.NewNFA(combo4.AllContinuousMoves()),
 		previewLen: previewLen,
 		value:      make(map[GameState]int, int(128*28*7*7*math.Pow(2.6, float64(previewLen)))),
+		maxValue:   maxValue,
 	}
 
 	var filteredStates []combo4.State
@@ -146,21 +158,29 @@ func forEachSeqHelper(seq []tetris.Piece, bagUsed tetris.PieceSet, seqIdx int, d
 	}
 }
 
-// UpdatePolicy updates the policy based on values and returns how many
+// updatePolicy updates the policy based on values and returns how many
 // policy changes there were.
-func (m *MDP) UpdatePolicy() int {
+func (m *MDP) updatePolicy() int {
+	maxValue := m.maxValue
+
 	var changed int
 
-	for gState, currentChoice := range m.policy {
+	for gState, value := range m.value {
+		if value >= maxValue && maxValue != -1 {
+			continue
+		}
+
 		choices := m.nfa.NextStates(gState.State, gState.Current)
 		if len(choices) == 1 {
 			m.policy[gState] = choices[0]
 		}
 
-		// Use the current choice in case of a tie-break.
-		// This way the policy changes minimally.
-		bestVal := m.calcValue(gState, currentChoice)
-		bestChoice := currentChoice
+		var (
+			currentChoice = m.policy[gState]
+
+			bestChoice = currentChoice
+			bestVal    = m.calcValue(gState, currentChoice)
+		)
 		for _, choice := range choices {
 			if choice == currentChoice {
 				continue
@@ -174,8 +194,6 @@ func (m *MDP) UpdatePolicy() int {
 		if currentChoice != bestChoice {
 			changed++
 			m.policy[gState] = bestChoice
-			// Update the corresponding values to the new estimates.
-			m.value[gState] = bestVal
 		}
 	}
 	log.Printf("Updated policy with %d changes", changed)
@@ -215,10 +233,12 @@ type valueChange struct {
 // Number of go-routines.
 const concurrency = 8
 
-// UpdateValues updates the expected values based on the current
-// expected values and policy. UpdateValues returns the number of values
-// that changed.
-func (m *MDP) UpdateValues() int {
+// updateValues updates the expected values based on the current
+// expected values and policy. updateValues returns the number of values
+// that changed. cap can be used to specify a maximum value.
+func (m *MDP) updateValues() int {
+	maxValue := m.maxValue
+
 	var (
 		vals    = make([]*valueChange, 0, len(m.value))
 		gStates = make([]GameState, 0, len(m.value))             // Used for valueChange -> GameState
@@ -249,6 +269,11 @@ func (m *MDP) UpdateValues() int {
 			go func() {
 				var changes int
 				for _, c := range vals[start:end] {
+					// Values can only increase so no point in iterating
+					// further.
+					if c.value >= maxValue && maxValue != -1 {
+						continue
+					}
 					// Update val based on depdendencies.
 					// Even though dependencies may change from different
 					// go-routines, this is fine because it is okay to read
@@ -258,9 +283,11 @@ func (m *MDP) UpdateValues() int {
 						totalVal += *d
 					}
 					newVal := 1 + totalVal/c.possibilities
+					if newVal > maxValue && maxValue != -1 {
+						newVal = maxValue
+					}
 
-					prevVal := c.value
-					if newVal != prevVal {
+					if newVal != c.value {
 						changes++
 						c.value = newVal
 					}
@@ -329,7 +356,11 @@ func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
 	for _, next := range poss {
 		totalVal += m.value[next]
 	}
-	return 1 + totalVal/len(poss)
+	val := 1 + totalVal/len(poss)
+	if val > m.maxValue && m.maxValue != -1 {
+		return m.maxValue
+	}
+	return val
 }
 
 // Update updates the MDP until it is at an optimal policy while periodically
@@ -337,19 +368,19 @@ func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
 func (m *MDP) Update(filePath string) error {
 	for i := 0; ; i++ {
 		start := time.Now()
-		valueChanges := m.UpdateValues()
-		log.Printf("UpdatedValues (iteration=#%d) with %d total changes in %v", i, valueChanges, time.Since(start))
-		if valueChanges != 0 {
-			if err := m.save(filePath); err != nil {
-				return fmt.Errorf("save failed: %v", err)
-			}
-		} else {
+		valueChanges := m.updateValues()
+		log.Printf("updatedValues (iteration=#%d) with %d total changes in %v", i, valueChanges, time.Since(start))
+		if valueChanges == 0 {
 			return nil
 		}
 
+		if err := m.save(filePath); err != nil {
+			return fmt.Errorf("save failed: %v", err)
+		}
+
 		start = time.Now()
-		policyChanges := m.UpdatePolicy()
-		log.Printf("UpdatePolicy (iteration=#%d) with %d total changes in %v", i, policyChanges, time.Since(start))
+		policyChanges := m.updatePolicy()
+		log.Printf("updatePolicy (iteration=#%d) with %d total changes in %v", i, policyChanges, time.Since(start))
 		if policyChanges == 0 {
 			return nil
 		}
@@ -400,7 +431,24 @@ func (m *MDP) GobDecode(b []byte) error {
 		return fmt.Errorf("gob.Decode(value): %v", err)
 	}
 	m.nfa = combo4.NewNFA(combo4.AllContinuousMoves())
-	m.initPolicy()
-	m.UpdatePolicy()
+
+	hasInitialVals := true
+	for _, v := range m.value {
+		if v == 1 {
+			continue
+		}
+		hasInitialVals = false
+		break
+	}
+	fmt.Printf("num states = %d\n", len(m.value))
+	if hasInitialVals {
+		m.initPolicy()
+	} else {
+		m.policy = make(map[GameState]combo4.State, len(m.value))
+		for gState := range m.value {
+			m.policy[gState] = m.nfa.NextStates(gState.State, gState.Current)[0]
+		}
+		m.updatePolicy()
+	}
 	return nil
 }

@@ -12,6 +12,7 @@ import (
 var (
 	gobFile     = flag.String("gob_file", "mdp3.gob", "The path to a binary file of the MDP gob encoding or the path to write it to")
 	previewLen  = flag.Int("preview_len", 3, "The number of pieces in preview")
+	maxCombo    = flag.Int("max_combo", -1, "The maximum combo")
 	fromScratch = flag.Bool("from_scratch", false, "If set to true, does not read the MDP from file but creates a new one")
 )
 
@@ -22,14 +23,17 @@ func main() {
 	mdp := getMDP()
 	fmt.Printf("Got initial MDP in %v\n", time.Since(start))
 
-	mdp.Update(*gobFile)
+	if err := mdp.Update(*gobFile); err != nil {
+		fmt.Printf("Update failed: %v\n", err)
+		return
+	}
 	fmt.Printf("Completed in %v", time.Since(start))
 }
 
 func getMDP() *bot.MDP {
 	// Create a new MDP.
 	if *fromScratch {
-		mdp, err := bot.NewMDP(*previewLen)
+		mdp, err := bot.NewMDP(*previewLen, *maxCombo)
 		if err != nil {
 			fmt.Printf("NewMDP failed: %v\n", err)
 			os.Exit(1)

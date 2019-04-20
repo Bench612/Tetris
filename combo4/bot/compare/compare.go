@@ -52,14 +52,14 @@ func newMDPPolicy(path string) bot.Policy {
 
 /* Sample Output
 
-Preview Size = 6 pieces
-Trials = 1000
+Preview Size = 5 pieces
+Trials = 10000
 Max sequence per trial = 5000
               Avg      Reach 100   Reach 500   Reach 1000   Reach 2000   Reach 5000
-Seq 2         476.2    66.1%       35.7%       15.4%        2.3%         0.0%
-Seq 7         1089.0   72.9%       55.1%       38.2%        19.0%        2.3%
-Seq 8         1192.9   72.9%       56.1%       40.6%        22.1%        4.1%
-Upper-bound   3905.3   78.1%       78.1%       78.1%        78.0%        77.8%
+Seq 3         279.1    59.1%       19.1%       4.8%         0.3%         0.0%
+Seq 6         396.7    64.1%       28.8%       10.9%        1.7%         0.0%
+MDP 5         855.3    69.7%       49.0%       31.7%        13.4%        0.7%
+Upper-bound   3815.9   76.3%       76.3%       76.2%        76.2%        76.2%
 
 */
 func main() {
