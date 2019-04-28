@@ -30,10 +30,14 @@ func main() {
 		os.Exit(1)
 	}
 	fmt.Printf("Got initial MDP in %v\n", time.Since(start))
-	bytes = nil // Release resouces
+
+	// Release resouces
+	bytes = nil
 
 	policy := mdp.Policy()
-	mdp = nil // Release resources.
+
+	// Release resources.
+	mdp = nil
 
 	start = time.Now()
 	bytes, err = policy.GobEncode()

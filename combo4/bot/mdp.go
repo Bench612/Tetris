@@ -472,17 +472,25 @@ func (m *MDPPolicy) NextState(initial combo4.State, current tetris.Piece, previe
 // Policy returns the MDP's policy.
 func (m *MDP) Policy() *MDPPolicy {
 	policy := make(map[GameState]combo4.State, len(m.policy))
-	// Only specify the choice if its not obvious.
+	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	def := PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
+
 	for gState, choice := range m.policy {
-		if choices := m.nfa.NextStates(gState.State, gState.Current); len(choices) > 1 {
-			policy[gState] = choice
+		// Only specify the choice if its not obvious.
+		if choices := nfa.NextStates(gState.State, gState.Current); len(choices) <= 1 {
+			continue
 		}
+		// Only specify the choice if it differs from the Scorer's policy.
+		if choice == *def.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed) {
+			continue
+		}
+		policy[gState] = choice
 	}
 
 	log.Printf("reduced states = %d\n", len(policy))
 	return &MDPPolicy{
 		policy: policy,
-		def:    PolicyFromScorer(m.nfa, NewNFAScorer(m.nfa, 7)),
+		def:    def,
 	}
 }
 
@@ -504,5 +512,7 @@ func (m *MDPPolicy) GobDecode(b []byte) error {
 	if err := decoder.Decode(&m.policy); err != nil {
 		return fmt.Errorf("decoder.Decode: %v", err)
 	}
+	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	m.def = PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
 	return nil
 }

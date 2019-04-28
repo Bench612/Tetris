@@ -15,6 +15,7 @@ type Scorer interface {
 
 // NFAScorer gives scores for situtations based on the number of permutations of
 // that have a possible solution i.e situations that an NFA considers doable.
+// NFAScorer is deterministic.
 type NFAScorer struct {
 	nfa *combo4.NFA
 	// The length of permutations considered. A larger permLen leads to more

@@ -54,7 +54,7 @@ func (s StateSet) Slice() []State {
 
 // NFA represents a non-determinstic finite automina with some differences.
 // All states are considered "final" and there is no "initial" state.
-// NFA is safe for concurrent use.
+// NFA is safe for concurrent use and deterministic.
 type NFA struct {
 	// trans contains possible transitions in the NFA.
 	// Usage: trans[piece][state] where piece is the next piece from the queue.
