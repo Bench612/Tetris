@@ -434,7 +434,7 @@ func (m *MDP) GobDecode(b []byte) error {
 		hasInitialVals = false
 		break
 	}
-	fmt.Printf("num states = %d\n", len(m.value))
+	log.Printf("num states = %d\n", len(m.value))
 	if hasInitialVals {
 		m.initPolicy()
 	} else {
@@ -448,25 +448,61 @@ func (m *MDP) GobDecode(b []byte) error {
 	return nil
 }
 
-// Policy returns the MDP's policy. The given map is used and the Scorer
-// should be used if no entry in the map exists.
-func (m *MDP) Policy() (map[GameState]combo4.State, Scorer) {
-	scorer := NewNFAScorer(m.nfa, 7)
-	d := PolicyFromScorer(m.nfa, scorer)
-	policy := make(map[GameState]combo4.State, len(m.policy))
-	for gState, choice := range m.policy {
-		choices := m.nfa.NextStates(gState.State, gState.Current)
+// MDPPolicy contains only the information necessary to use the policy in an MDP.
+type MDPPolicy struct {
+	policy map[GameState]combo4.State
+	def    Policy // def is used if the policy does not contain the game state.
+}
 
-		// Only specify the choice if its not obvious.
-		if len(choices) == 0 {
-			continue
-		}
-		nfaChoice := d.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed)
-		if choice == *nfaChoice {
-			continue
-		}
-		policy[gState] = choice
+// NextState returns the next state. NextState panics if the preview is over
+// length 7.
+func (m *MDPPolicy) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
+	if next, ok := m.policy[GameState{
+		State:   initial,
+		Current: current,
+		Preview: tetris.MustSeq(preview),
+		BagUsed: endBagUsed,
+	}]; ok {
+		copy := next
+		return &copy
 	}
-	fmt.Printf("reduced states = %d\n", len(policy))
-	return policy, scorer
+	return m.def.NextState(initial, current, preview, endBagUsed)
+}
+
+// Policy returns the MDP's policy.
+func (m *MDP) Policy() *MDPPolicy {
+	policy := make(map[GameState]combo4.State, len(m.policy))
+	// Only specify the choice if its not obvious.
+	for gState, choice := range m.policy {
+		if choices := m.nfa.NextStates(gState.State, gState.Current); len(choices) > 1 {
+			policy[gState] = choice
+		}
+	}
+
+	log.Printf("reduced states = %d\n", len(policy))
+	return &MDPPolicy{
+		policy: policy,
+		def:    PolicyFromScorer(m.nfa, NewNFAScorer(m.nfa, 7)),
+	}
+}
+
+// GobEncode returns a Gob encoding of a MDPPolicy.
+func (m *MDPPolicy) GobEncode() ([]byte, error) {
+	buf := new(bytes.Buffer)
+	encoder := gob.NewEncoder(buf)
+	if err := encoder.Encode(&m.policy); err != nil {
+		return nil, fmt.Errorf("encoder.Encode: %v", err)
+	}
+	return buf.Bytes(), nil
+}
+
+// GobDecode decodes a Gob encoding into an MDPPolicy.
+func (m *MDPPolicy) GobDecode(b []byte) error {
+	buf := new(bytes.Buffer)
+	buf.Write(b) // Always returns nil.
+	decoder := gob.NewDecoder(buf)
+	if err := decoder.Decode(&m.policy); err != nil {
+		return fmt.Errorf("decoder.Decode: %v", err)
+	}
+	return nil
 }

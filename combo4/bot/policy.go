@@ -123,31 +123,3 @@ func StartGame(pol Policy, initial combo4.Field4x4, current tetris.Piece, next [
 
 	return output
 }
-
-type mdpPolicy struct {
-	policy        map[GameState]combo4.State
-	defaultPolicy Policy
-}
-
-// PolicyFromMDP returns a new Policy based on an MDP.
-func PolicyFromMDP(mdp *MDP) Policy {
-	policy, scorer := mdp.Policy()
-	return &mdpPolicy{
-		policy:        policy,
-		defaultPolicy: PolicyFromScorer(combo4.NewNFA(combo4.AllContinuousMoves()), scorer),
-	}
-}
-
-func (p *mdpPolicy) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
-	gameState := GameState{
-		State:   initial,
-		Current: current,
-		Preview: tetris.MustSeq(preview),
-		BagUsed: endBagUsed,
-	}
-	if nextState, ok := p.policy[gameState]; ok {
-		copy := nextState
-		return &copy
-	}
-	return p.defaultPolicy.NextState(initial, current, preview, endBagUsed)
-}

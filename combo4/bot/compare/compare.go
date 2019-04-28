@@ -47,7 +47,7 @@ func newMDPPolicy(path string) bot.Policy {
 		fmt.Printf("GobDecode failed: %v\n", err)
 		os.Exit(1)
 	}
-	return bot.PolicyFromMDP(mdp)
+	return mdp.Policy()
 }
 
 /* Sample Output
