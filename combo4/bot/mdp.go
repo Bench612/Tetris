@@ -200,21 +200,6 @@ func (m *MDP) updatePolicy() int {
 	return changed
 }
 
-// Policy returns the MDP's policy. The given map is used and the Scorer
-// should be used if no entry in the map exists.
-func (m *MDP) Policy() (map[GameState]combo4.State, Scorer) {
-	policy := make(map[GameState]combo4.State, len(m.policy))
-	for gState, choice := range m.policy {
-		choices := m.nfa.NextStates(gState.State, gState.Current)
-
-		// Only specify the choice if its not obvious.
-		if len(choices) > 1 {
-			policy[gState] = choice
-		}
-	}
-	return policy, NewNFAScorer(m.nfa, m.previewLen)
-}
-
 // valueChange is used for efficient updating of values given a particular
 // policy.
 type valueChange struct {
@@ -374,8 +359,8 @@ func (m *MDP) Update(filePath string) error {
 			return nil
 		}
 
-		if err := m.save(filePath); err != nil {
-			return fmt.Errorf("save failed: %v", err)
+		if err := m.Save(filePath); err != nil {
+			return fmt.Errorf("Save() failed: %v", err)
 		}
 
 		start = time.Now()
@@ -387,9 +372,8 @@ func (m *MDP) Update(filePath string) error {
 	}
 }
 
-// save saves the MDP to the filePath or returns nil
-// if the path is empty.
-func (m *MDP) save(filePath string) error {
+// Save the MDP to the filePath or returns nil if the path is empty.
+func (m *MDP) Save(filePath string) error {
 	if filePath == "" {
 		return nil
 	}
@@ -416,6 +400,9 @@ func (m *MDP) GobEncode() ([]byte, error) {
 	if err := encoder.Encode(&m.value); err != nil {
 		return nil, fmt.Errorf("encoder.Encode(value): %v", err)
 	}
+	if err := encoder.Encode(&m.maxValue); err != nil {
+		return nil, fmt.Errorf("encoder.Encode(maxValue): %v", err)
+	}
 	return buf.Bytes(), nil
 }
 
@@ -425,10 +412,17 @@ func (m *MDP) GobDecode(b []byte) error {
 	buf.Write(b) // Always returns nil.
 	decoder := gob.NewDecoder(buf)
 	if err := decoder.Decode(&m.previewLen); err != nil {
-		return fmt.Errorf("gob.Decode(previewLen): %v", err)
+		return fmt.Errorf("decoder.Decode(previewLen): %v", err)
 	}
 	if err := decoder.Decode(&m.value); err != nil {
-		return fmt.Errorf("gob.Decode(value): %v", err)
+		return fmt.Errorf("decoder.Decode(value): %v", err)
+	}
+	m.maxValue = -1
+	// Previous versions did not have a maxValue.
+	if buf.Len() > 0 {
+		if err := decoder.Decode(&m.maxValue); err != nil {
+			return fmt.Errorf("decoder.Decode(maxValue): %v", err)
+		}
 	}
 	m.nfa = combo4.NewNFA(combo4.AllContinuousMoves())
 
@@ -444,6 +438,7 @@ func (m *MDP) GobDecode(b []byte) error {
 	if hasInitialVals {
 		m.initPolicy()
 	} else {
+		// Create some inital policy values.
 		m.policy = make(map[GameState]combo4.State, len(m.value))
 		for gState := range m.value {
 			m.policy[gState] = m.nfa.NextStates(gState.State, gState.Current)[0]
@@ -451,4 +446,27 @@ func (m *MDP) GobDecode(b []byte) error {
 		m.updatePolicy()
 	}
 	return nil
+}
+
+// Policy returns the MDP's policy. The given map is used and the Scorer
+// should be used if no entry in the map exists.
+func (m *MDP) Policy() (map[GameState]combo4.State, Scorer) {
+	scorer := NewNFAScorer(m.nfa, 7)
+	d := PolicyFromScorer(m.nfa, scorer)
+	policy := make(map[GameState]combo4.State, len(m.policy))
+	for gState, choice := range m.policy {
+		choices := m.nfa.NextStates(gState.State, gState.Current)
+
+		// Only specify the choice if its not obvious.
+		if len(choices) == 0 {
+			continue
+		}
+		nfaChoice := d.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed)
+		if choice == *nfaChoice {
+			continue
+		}
+		policy[gState] = choice
+	}
+	fmt.Printf("reduced states = %d\n", len(policy))
+	return policy, scorer
 }

@@ -84,7 +84,8 @@ func NewNFAScorer(nfa *combo4.NFA, permLen int) *NFAScorer {
 
 	ch := make(chan stateInviable, len(states))
 
-	// Base case of all sequences of length 0 that are inviable (all viable).
+	// Base case on prevInviable is all sequences of length 0 that are inviable
+	// (everything is viable).
 	prevInviable := make(map[combo4.State]*tetris.SeqSet, len(states))
 	inviable := make(map[combo4.State]*tetris.SeqSet, len(states))
 

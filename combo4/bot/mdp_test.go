@@ -2,6 +2,8 @@ package bot
 
 import (
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
 )
 
 func BenchmarkNewMDP3(b *testing.B) {
@@ -66,7 +68,7 @@ func TestMDPUpdate(t *testing.T) {
 
 func TestMDPUpdateValues(t *testing.T) {
 	t.Parallel()
-	mdp, err := NewMDP(1, -1)
+	mdp, err := NewMDP(1, 10)
 	if err != nil {
 		t.Fatalf("NewMDP: %v", err)
 	}
@@ -80,7 +82,7 @@ func TestMDPUpdateValues(t *testing.T) {
 
 func TestMDPUpdatePolicy(t *testing.T) {
 	t.Parallel()
-	mdp, err := NewMDP(1, -1)
+	mdp, err := NewMDP(1, 10)
 	if err != nil {
 		t.Fatalf("NewMDP: %v", err)
 	}
@@ -89,5 +91,41 @@ func TestMDPUpdatePolicy(t *testing.T) {
 	}
 	if mdp.updatePolicy() != 0 {
 		t.Errorf("updatePolicy call after no changes had changes")
+	}
+}
+
+func TestMDPGob(t *testing.T) {
+	t.Parallel()
+
+	mdp, err := NewMDP(1, 4)
+	if err != nil {
+		t.Fatalf("NewMDP: %v", err)
+	}
+
+	t.Run("without update", func(t *testing.T) { testMdpGobHelper(t, mdp) })
+
+	mdp.updateValues()
+	t.Run("with update", func(t *testing.T) { testMdpGobHelper(t, mdp) })
+}
+
+func testMdpGobHelper(t *testing.T, mdp *MDP) {
+	encoding1, err := mdp.GobEncode()
+	if err != nil {
+		t.Fatalf("GobEncode: %v", err)
+	}
+
+	decoding := new(MDP)
+	if err := decoding.GobDecode(encoding1); err != nil {
+		t.Fatalf("GobDecode: %v", err)
+	}
+
+	if diff := cmp.Diff(decoding.value, mdp.value); diff != "" {
+		t.Errorf("value map differs after decoding: (-want +got)\n:%v", diff)
+	}
+	if decoding.previewLen != 1 {
+		t.Errorf("got previewLen=%d after decoding, want 1", decoding.previewLen)
+	}
+	if decoding.maxValue != mdp.maxValue {
+		t.Errorf("got maxValue=%d after decoding, want %d", decoding.maxValue, mdp.maxValue)
 	}
 }

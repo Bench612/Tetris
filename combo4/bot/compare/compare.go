@@ -17,7 +17,7 @@ import (
 
 var (
 	numTrials     = flag.Int("num_trials", 200, "the number of trials to test each scorer with")
-	previewSize   = flag.Int("preview_size", 4, "the number of pieces you can see in the preview")
+	previewSize   = flag.Int("preview_size", 5, "the number of pieces you can see in the preview")
 	deterministic = flag.Bool("deterministic", true, "whether the output is the same with each run")
 )
 
@@ -32,7 +32,7 @@ var policiesWithNames = [...]struct {
 	policy bot.Policy
 }{
 	{"Seq 3", bot.PolicyFromScorer(nfa, bot.NewNFAScorer(nfa, 3))},
-	{"Seq 6", bot.PolicyFromScorer(nfa, bot.NewNFAScorer(nfa, 5))},
+	{"Seq 6", bot.PolicyFromScorer(nfa, bot.NewNFAScorer(nfa, 6))},
 	{"MDP 5", newMDPPolicy("mdp5.gob")},
 }
 
