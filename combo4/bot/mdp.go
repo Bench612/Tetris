@@ -341,7 +341,10 @@ func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
 	for _, next := range poss {
 		totalVal += m.value[next]
 	}
-	val := 1 + totalVal/len(poss)
+	// Round UP to the nearest integer. Since we start at the lowest
+	// possible value, rounding up gaurantees that the values
+	// will eventually be within 1 of the true values.
+	val := 1 + (totalVal+len(poss)-1)/len(poss)
 	if val > m.maxValue && m.maxValue != -1 {
 		return m.maxValue
 	}

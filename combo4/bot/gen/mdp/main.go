@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	gobFile     = flag.String("gob_file", "mdp3.gob", "The path to a binary file of the MDP gob encoding or the path to write it to")
+	gobFile     = flag.String("mdp_file", "mdp3.gob", "The path to a binary file of the MDP gob encoding or the path to write it to")
 	previewLen  = flag.Int("preview_len", 3, "The number of pieces in preview")
 	maxCombo    = flag.Int("max_combo", -1, "The maximum combo")
 	fromScratch = flag.Bool("from_scratch", false, "If set to true, does not read the MDP from file but creates a new one")

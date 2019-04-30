@@ -33,7 +33,7 @@ var policiesWithNames = [...]struct {
 }{
 	{"Seq 3", bot.PolicyFromScorer(nfa, bot.NewNFAScorer(nfa, 3))},
 	{"Seq 6", bot.PolicyFromScorer(nfa, bot.NewNFAScorer(nfa, 6))},
-	{"MDP 5", newMDPPolicy("mdp5.gob")},
+	{"MDP 5", newMDPPolicy("mdp_policy5.gob")},
 }
 
 func newMDPPolicy(path string) bot.Policy {
@@ -42,12 +42,12 @@ func newMDPPolicy(path string) bot.Policy {
 		fmt.Printf("ioutil.ReadFile(%q): %v\n", path, err)
 		os.Exit(1)
 	}
-	mdp := &bot.MDP{}
-	if err := mdp.GobDecode(bytes); err != nil {
+	mdpPol := &bot.MDPPolicy{}
+	if err := mdpPol.GobDecode(bytes); err != nil {
 		fmt.Printf("GobDecode failed: %v\n", err)
 		os.Exit(1)
 	}
-	return mdp.Policy()
+	return mdpPol
 }
 
 /* Sample Output
