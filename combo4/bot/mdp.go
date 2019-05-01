@@ -267,7 +267,8 @@ func (m *MDP) updateValues() int {
 					for _, d := range c.dependencies {
 						totalVal += *d
 					}
-					newVal := 1 + totalVal/c.possibilities
+					// Round UP to the nearest integer.
+					newVal := 1 + (totalVal+c.possibilities-1)/c.possibilities
 					if newVal > maxValue && maxValue != -1 {
 						newVal = maxValue
 					}
