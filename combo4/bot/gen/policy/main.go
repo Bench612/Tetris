@@ -34,7 +34,7 @@ func main() {
 	// Release resouces
 	bytes = nil
 
-	policy := mdp.Policy()
+	policy := mdp.CompressedPolicy()
 
 	// Release resources.
 	mdp = nil
