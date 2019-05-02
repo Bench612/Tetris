@@ -17,6 +17,20 @@ func (m Move) String() string {
 	return fmt.Sprintf("{\nStart:\n%v\nEnd:\n%v\nPiece: %v\n}\n", m.Start, m.End, m.Piece)
 }
 
+// Cached list of actions for each move.
+// Actions are specific to NullpoMino.
+var actionsMap = make(map[Move][]tetris.Action)
+
+// Actions returns the actions that must be done to perform the move. These
+// are specific to NullpoMino.
+func (m Move) Actions() []tetris.Action {
+	if cached, ok := actionsMap[m]; ok {
+		return cached
+	}
+	// TODO(benjaminchang): Add to the cache.
+	return nil
+}
+
 // AllContinuousMoves returns all moves that result in further play.
 // See https://harddrop.com/wiki/Combo_Setups#4-Wide_with_3_Residua.
 func AllContinuousMoves() []Move {

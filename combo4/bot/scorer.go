@@ -13,18 +13,6 @@ type Scorer interface {
 	Score(state combo4.State, next []tetris.Piece, bagUsed tetris.PieceSet) int64
 }
 
-// BasicScorer is the most basic scorer that just checks how many of the known
-// next pieces can be consumed.
-type BasicScorer struct {
-	NFA *combo4.NFA
-}
-
-// Score checks how many of the known next pieces can be consumed.
-func (s *BasicScorer) Score(state combo4.State, next []tetris.Piece, bagUsed tetris.PieceSet) int64 {
-	_, consumed := s.NFA.EndStates(combo4.NewStateSet(state), next)
-	return int64(consumed)
-}
-
 // NFAScorer gives scores for situtations based on the number of permutations of
 // that have a possible solution i.e situations that an NFA considers doable.
 // NFAScorer is deterministic.

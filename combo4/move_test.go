@@ -75,7 +75,7 @@ func checkMove(t *testing.T, move Move) error {
 		if pieceField.NumOccupied() != 4 {
 			continue
 		}
-		pieceField = toCanonicalPieceField(pieceField)
+		pieceField, _, _ = toCanonicalPieceField(pieceField)
 		switch p := canonicalPieceMap[pieceField]; p {
 		case tetris.EmptyPiece:
 		case move.Piece:
@@ -90,7 +90,7 @@ func checkMove(t *testing.T, move Move) error {
 	return fmt.Errorf("there is no transition from start -> end using %s", move.Piece)
 }
 
-func toCanonicalPieceField(f Field4x4) Field4x4 {
+func toCanonicalPieceField(f Field4x4) (canonical Field4x4, rowShift int, colShift int) {
 	arr := f.Array2D()
 	maxRow := -1
 	minCol := 4
@@ -108,14 +108,14 @@ func toCanonicalPieceField(f Field4x4) Field4x4 {
 		}
 	}
 	var shiftedArr [4][4]bool
-	rowShift := 3 - maxRow
-	colShift := -minCol
+	rowShift = 3 - maxRow
+	colShift = -minCol
 	for r := 0; r <= maxRow; r++ {
 		for c := 3; c >= minCol; c-- {
 			shiftedArr[r+rowShift][c+colShift] = arr[r][c]
 		}
 	}
-	return NewField4x4(shiftedArr[:])
+	return NewField4x4(shiftedArr[:]), rowShift, colShift
 }
 
 // The canonicalPieceMap is a map from Field4x4 of all rotations of pieces to the piece.
