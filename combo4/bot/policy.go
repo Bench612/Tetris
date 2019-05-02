@@ -70,11 +70,6 @@ func (p *scorePolicy) NextState(initial combo4.State, current tetris.Piece, prev
 // StartGame panics if a piece that does not follow the 7 bag randomizer is
 // added to the input channel.
 func StartGame(pol Policy, initial combo4.Field4x4, current tetris.Piece, next []tetris.Piece, input chan tetris.Piece) chan *combo4.State {
-	cpy := make([]tetris.Piece, len(next))
-	copy(cpy, next)
-	next = cpy
-
-	state := &combo4.State{Field: initial}
 	bag := current.PieceSet()
 	for _, n := range next {
 		bag = bag.Add(n)
@@ -82,13 +77,23 @@ func StartGame(pol Policy, initial combo4.Field4x4, current tetris.Piece, next [
 			bag = 0
 		}
 	}
+	return ResumeGame(pol, combo4.State{Field: initial}, current, next, bag, input)
+}
+
+// ResumeGame is like StartGame but does not assume the game is played from
+// the beginning.
+func ResumeGame(pol Policy, initialState combo4.State, current tetris.Piece, next []tetris.Piece, endBagUsed tetris.PieceSet, input chan tetris.Piece) chan *combo4.State {
+	// Make a copy of next because we will be modifying it.
+	cpy := make([]tetris.Piece, len(next))
+	copy(cpy, next)
+	next = cpy
 
 	output := make(chan *combo4.State, len(input))
 	go func() {
 		defer close(output)
 
 		// Output the first move.
-		state := pol.NextState(*state, current, next, bag)
+		state := pol.NextState(initialState, current, next, endBagUsed)
 		output <- state
 
 		for p := range input {
@@ -108,15 +113,15 @@ func StartGame(pol Policy, initial combo4.Field4x4, current tetris.Piece, next [
 			}
 
 			// Update the bag.
-			if bag.Len() == 7 {
-				bag = 0
+			if endBagUsed.Len() == 7 {
+				endBagUsed = 0
 			}
-			if bag.Contains(p) {
-				panic(`impossible piece "` + p.String() + `" for bag state ` + bag.String())
+			if endBagUsed.Contains(p) {
+				panic(`impossible piece "` + p.String() + `" for bag state ` + endBagUsed.String())
 			}
-			bag = bag.Add(p)
+			endBagUsed = endBagUsed.Add(p)
 
-			state = pol.NextState(*state, current, next, bag)
+			state = pol.NextState(*state, current, next, endBagUsed)
 			output <- state
 		}
 	}()

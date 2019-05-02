@@ -1,14 +1,18 @@
 package bot
 
 import (
+	"math"
+	"math/rand"
 	"testing"
+	"tetris"
+	"tetris/combo4"
 
 	"github.com/google/go-cmp/cmp"
 )
 
 func BenchmarkNewMDP3(b *testing.B) {
 	for n := 0; n < b.N; n++ {
-		if _, err := NewMDP(3, -1); err != nil {
+		if _, err := NewMDP(3); err != nil {
 			b.Fatalf("NewMDP failed: %v", err)
 		}
 	}
@@ -23,7 +27,7 @@ func BenchmarkMDP2Update(b *testing.B) {
 }
 
 func BenchmarkMDP3UpdateValues(b *testing.B) {
-	mdp, err := NewMDP(3, -1)
+	mdp, err := NewMDP(3)
 	if err != nil {
 		b.Fatalf("NewMDP: %v", err)
 	}
@@ -32,43 +36,25 @@ func BenchmarkMDP3UpdateValues(b *testing.B) {
 
 func benchmarkMDPUpdate(b *testing.B, previewLen int) {
 	for n := 0; n < b.N; n++ {
-		mdp, err := NewMDP(previewLen, -1)
+		mdp, err := NewMDP(previewLen)
 		if err != nil {
 			b.Fatalf("NewMDP: %v", err)
 		}
 		mdp.Update("")
 
-		var maxVal int
+		var maxVal float64
 		for _, v := range mdp.value {
 			if v > maxVal {
 				maxVal = v
 			}
 		}
-		b.Logf("maxVal=%d", maxVal)
-	}
-}
-
-func TestMDPUpdate(t *testing.T) {
-	t.Parallel()
-	mdp, err := NewMDP(1, -1)
-	if err != nil {
-		t.Fatalf("NewMDP: %v", err)
-	}
-	mdp.Update("")
-	var maxVal int
-	for _, v := range mdp.value {
-		if v > maxVal {
-			maxVal = v
-		}
-	}
-	if maxVal != 44 {
-		t.Errorf("got maximum value = %d, want 44", maxVal)
+		b.Logf("maxVal=%.2f", maxVal)
 	}
 }
 
 func TestMDPUpdateValues(t *testing.T) {
 	t.Parallel()
-	mdp, err := NewMDP(1, 10)
+	mdp, err := NewMDP(1)
 	if err != nil {
 		t.Fatalf("NewMDP: %v", err)
 	}
@@ -80,9 +66,92 @@ func TestMDPUpdateValues(t *testing.T) {
 	}
 }
 
+func TestCompressedPolicy(t *testing.T) {
+	t.Parallel()
+
+	mdp, err := NewMDP(1)
+	if err != nil {
+		t.Fatalf("NewMDP: %v", err)
+	}
+	mdp.updateValues()
+	mdp.updatePolicy()
+
+	compressed := mdp.CompressedPolicy()
+	policy := mdp.Policy()
+
+	// Verify the choice is the same for each "stable" GameState.
+	for gState := range mdp.value {
+		got := compressed.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed)
+		want := policy.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed)
+		if !cmp.Equal(got, want) {
+			t.Fatalf("Compressed policy differs for state %v", gState)
+		}
+	}
+}
+
+// This test is technically flaky but has a low failure rate because it
+// takes a lot of samples.
+func TestMDPExpectedValue(t *testing.T) {
+	t.Parallel()
+
+	mdp, err := NewMDP(1)
+	if err != nil {
+		t.Fatalf("NewMDP: %v", err)
+	}
+	mdp.updateValues()
+
+	// Check that the expected value of a GameState is accurate by doing
+	// some sampling.
+	policy := mdp.Policy()
+	gState := GameState{
+		State: combo4.State{
+			Hold: tetris.J,
+			Field: combo4.NewField4x4([][4]bool{
+				{true, false, false, false},
+				{true, true, false, false},
+			}),
+		},
+		Current: tetris.S,
+		Preview: tetris.MustSeq([]tetris.Piece{tetris.O}),
+		BagUsed: tetris.NewPieceSet(tetris.O, tetris.S),
+	}
+
+	const numTrials = 20 * 1000
+	var sampleValue float64
+	for trial := 0; trial < numTrials; trial++ {
+		inputCh := make(chan tetris.Piece, 7)
+		outputCh := ResumeGame(policy, gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed, inputCh)
+
+		// Populate the inputCh with some initial values.
+		initial := gState.BagUsed.Inverted().Slice()
+		rand.Shuffle(len(initial), func(i, j int) { initial[i], initial[j] = initial[j], initial[i] })
+		for _, p := range initial {
+			inputCh <- p
+		}
+
+		var count int
+	OuterLoop:
+		for {
+			next := tetris.RandPieces(7)
+			for _, p := range next {
+				if <-outputCh == nil {
+					break OuterLoop
+				}
+				count++
+				inputCh <- p
+			}
+		}
+		sampleValue += float64(count) / numTrials
+	}
+
+	if got := mdp.ExpectedValue(gState); math.Abs(got-sampleValue) > 1 {
+		t.Errorf("got ExpectedValue=%.2f, want %.2f", got, sampleValue)
+	}
+}
+
 func TestMDPUpdatePolicy(t *testing.T) {
 	t.Parallel()
-	mdp, err := NewMDP(1, 10)
+	mdp, err := NewMDP(1)
 	if err != nil {
 		t.Fatalf("NewMDP: %v", err)
 	}
@@ -97,14 +166,14 @@ func TestMDPUpdatePolicy(t *testing.T) {
 func TestMDPGob(t *testing.T) {
 	t.Parallel()
 
-	mdp, err := NewMDP(1, 4)
+	mdp, err := NewMDP(1)
 	if err != nil {
 		t.Fatalf("NewMDP: %v", err)
 	}
 
 	t.Run("without update", func(t *testing.T) { testMdpGobHelper(t, mdp) })
 
-	mdp.updateValues()
+	mdp.Update("")
 	t.Run("with update", func(t *testing.T) { testMdpGobHelper(t, mdp) })
 }
 
@@ -125,7 +194,29 @@ func testMdpGobHelper(t *testing.T, mdp *MDP) {
 	if decoding.previewLen != 1 {
 		t.Errorf("got previewLen=%d after decoding, want 1", decoding.previewLen)
 	}
-	if decoding.maxValue != mdp.maxValue {
-		t.Errorf("got maxValue=%d after decoding, want %d", decoding.maxValue, mdp.maxValue)
+}
+
+func TestMDPPolicyGob(t *testing.T) {
+	t.Parallel()
+
+	mdp, err := NewMDP(1)
+	if err != nil {
+		t.Fatalf("NewMDP: %v", err)
+	}
+
+	policy := (mdp.Policy()).(*MDPPolicy)
+
+	encoding1, err := policy.GobEncode()
+	if err != nil {
+		t.Fatalf("GobEncode: %v", err)
+	}
+
+	decoding := new(MDPPolicy)
+	if err := decoding.GobDecode(encoding1); err != nil {
+		t.Fatalf("GobDecode: %v", err)
+	}
+
+	if diff := cmp.Diff(decoding.policy, policy.policy); diff != "" {
+		t.Errorf("value map differs after decoding: (-want +got)\n:%v", diff)
 	}
 }

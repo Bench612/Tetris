@@ -14,6 +14,9 @@ import (
 	"time"
 )
 
+// Number of go-routines to parallelize across.
+const concurrency = 8
+
 // MDP represents a Markov Decision Process but only considers the game states
 // that are considered "stable". That is, states with a piece held and are not
 // swap restricted.
@@ -27,11 +30,11 @@ type MDP struct {
 	policy map[GameState]combo4.State
 
 	// The expected value for how many combos will occur minus previewLen.
-	// With error margin up to 1.
-	value map[GameState]int
-
-	// The maximum value.
-	maxValue int
+	// Since we only store GameStates that can at least consume the current
+	// piece and all the preview, any state that it can transition to that is
+	// not in the map can only consume len(preview) pieces. This is
+	// conveniently the 0 value.
+	value map[GameState]float64
 }
 
 // GameState encapsulates all information about the current game state while
@@ -43,25 +46,16 @@ type GameState struct {
 	BagUsed tetris.PieceSet
 }
 
-// NewMDP constructs a new MDP.
-// maxCombo is the maximum combo that we are about. Use -1 for no max.
-func NewMDP(previewLen, maxCombo int) (*MDP, error) {
+// NewMDP constructs a new MDP for the given preview length.
+func NewMDP(previewLen int) (*MDP, error) {
 	if previewLen > 7 || previewLen < 1 {
 		return nil, errors.New("previewLen must be between 1 and 7")
-	}
-	if maxCombo <= previewLen && maxCombo != -1 {
-		return nil, errors.New("maxCombo must be greater than previewLen")
-	}
-	var maxValue = maxCombo - previewLen
-	if maxCombo == -1 {
-		maxValue = -1
 	}
 
 	m := &MDP{
 		nfa:        combo4.NewNFA(combo4.AllContinuousMoves()),
 		previewLen: previewLen,
-		value:      make(map[GameState]int, int(128*28*7*7*math.Pow(2.6, float64(previewLen)))),
-		maxValue:   maxValue,
+		value:      make(map[GameState]float64, int(128*28*7*7*math.Pow(2.6, float64(previewLen)))),
 	}
 
 	var filteredStates []combo4.State
@@ -78,7 +72,7 @@ func NewMDP(previewLen, maxCombo int) (*MDP, error) {
 		allBags := tetris.AllPieceSets()
 		var wg sync.WaitGroup
 		wg.Add(len(allBags))
-		maxConcurrency := make(chan bool, 4)
+		maxConcurrency := make(chan bool, concurrency)
 		for _, bagUsed := range allBags {
 			bagUsed := bagUsed // Capture range variable.
 
@@ -118,6 +112,20 @@ func NewMDP(previewLen, maxCombo int) (*MDP, error) {
 
 	m.initPolicy()
 	return m, nil
+}
+
+// ExpectedValue returns the expected number of pieces that will be consumed
+// for a GameState. This is only accurate if Update() has completed.
+func (m *MDP) ExpectedValue(gState GameState) float64 {
+	if val, ok := m.value[gState]; ok {
+		return val + float64(m.previewLen)
+	}
+	start := combo4.NewStateSet(m.nfa.NextStates(gState.State, gState.Current)...)
+	if len(start) == 0 {
+		return 0
+	}
+	_, consumed := m.nfa.EndStates(start, gState.Preview.Slice())
+	return float64(consumed) + 1
 }
 
 // initPolicy creates an initial policy based on what the scorer would do.
@@ -161,36 +169,23 @@ func forEachSeqHelper(seq []tetris.Piece, bagUsed tetris.PieceSet, seqIdx int, d
 // updatePolicy updates the policy based on values and returns how many
 // policy changes there were.
 func (m *MDP) updatePolicy() int {
-	maxValue := m.maxValue
-
 	var changed int
-
-	for gState, value := range m.value {
-		if value >= maxValue && maxValue != -1 {
+	for gState, currentChoice := range m.policy {
+		choices := m.nfa.NextStates(gState.State, gState.Current)
+		if len(choices) == 1 {
 			continue
 		}
 
-		choices := m.nfa.NextStates(gState.State, gState.Current)
-		if len(choices) == 1 {
-			m.policy[gState] = choices[0]
-		}
-
 		var (
-			currentChoice = m.policy[gState]
-
-			bestChoice = currentChoice
-			bestVal    = m.calcValue(gState, currentChoice)
+			bestChoice combo4.State
+			bestVal    = -1.0
 		)
 		for _, choice := range choices {
-			if choice == currentChoice {
-				continue
-			}
-			if v := m.calcValue(gState, choice); v > bestVal {
+			if v := m.calcValue(gState, choice); v <= bestVal {
 				bestVal = v
 				bestChoice = choice
 			}
 		}
-
 		if currentChoice != bestChoice {
 			changed++
 			m.policy[gState] = bestChoice
@@ -205,25 +200,22 @@ func (m *MDP) updatePolicy() int {
 type valueChange struct {
 	// Used to calculate the next value.
 	// The next value is 1 + sum(dependencies) / possibilities
-	possibilities int
-	dependencies  []*int
+	possibilities float64
+	dependencies  []*float64
 
 	// It is important that this is updated atomically. So that valCurrent
 	// never decreases. valCurrent may be concurrently modified and read.
 	// But will still reach equilibrium as long as it does not decrease or
 	// overly increase.
-	value int
+	value float64
 }
 
-// Number of go-routines.
-const concurrency = 8
+const epsilon = 0.0001 // The smallest value that we care about updating.
 
 // updateValues updates the expected values based on the current
 // expected values and policy. updateValues returns the number of values
 // that changed. cap can be used to specify a maximum value.
 func (m *MDP) updateValues() int {
-	maxValue := m.maxValue
-
 	var (
 		vals    = make([]*valueChange, 0, len(m.value))
 		gStates = make([]GameState, 0, len(m.value))             // Used for valueChange -> GameState
@@ -242,7 +234,7 @@ func (m *MDP) updateValues() int {
 				c.dependencies = append(c.dependencies, &dep.value)
 			}
 		}
-		c.possibilities = len(possibilities)
+		c.possibilities = float64(len(possibilities))
 	}
 	cMap = nil // No longer needed.
 
@@ -254,26 +246,17 @@ func (m *MDP) updateValues() int {
 			go func() {
 				var changes int
 				for _, c := range vals[start:end] {
-					// Values can only increase so no point in iterating
-					// further.
-					if c.value >= maxValue && maxValue != -1 {
-						continue
-					}
 					// Update val based on depdendencies.
 					// Even though dependencies may change from different
 					// go-routines, this is fine because it is okay to read
 					// either version of the value.
-					var totalVal int
+					var totalVal float64
 					for _, d := range c.dependencies {
 						totalVal += *d
 					}
-					// Round UP to the nearest integer.
-					newVal := 1 + (totalVal+c.possibilities-1)/c.possibilities
-					if newVal > maxValue && maxValue != -1 {
-						newVal = maxValue
-					}
+					newVal := 1 + totalVal/c.possibilities
 
-					if newVal != c.value {
+					if math.Abs(newVal-c.value) > epsilon {
 						changes++
 						c.value = newVal
 					}
@@ -336,20 +319,15 @@ func (m *MDP) possibilities(cur GameState, choice combo4.State) []GameState {
 	return possibilities
 }
 
-func (m *MDP) calcValue(cur GameState, choice combo4.State) int {
-	var totalVal int
+// calcValue calculates the expected value given the current estimates and
+// policy. This needs to be kept in sync with the formula in updateValues().
+func (m *MDP) calcValue(cur GameState, choice combo4.State) float64 {
+	var totalVal float64
 	poss := m.possibilities(cur, choice)
 	for _, next := range poss {
 		totalVal += m.value[next]
 	}
-	// Round UP to the nearest integer. Since we start at the lowest
-	// possible value, rounding up gaurantees that the values
-	// will eventually be within 1 of the true values.
-	val := 1 + (totalVal+len(poss)-1)/len(poss)
-	if val > m.maxValue && m.maxValue != -1 {
-		return m.maxValue
-	}
-	return val
+	return 1 + totalVal/float64(len(poss))
 }
 
 // Update updates the MDP until it is at an optimal policy while periodically
@@ -404,9 +382,6 @@ func (m *MDP) GobEncode() ([]byte, error) {
 	if err := encoder.Encode(&m.value); err != nil {
 		return nil, fmt.Errorf("encoder.Encode(value): %v", err)
 	}
-	if err := encoder.Encode(&m.maxValue); err != nil {
-		return nil, fmt.Errorf("encoder.Encode(maxValue): %v", err)
-	}
 	return buf.Bytes(), nil
 }
 
@@ -420,13 +395,6 @@ func (m *MDP) GobDecode(b []byte) error {
 	}
 	if err := decoder.Decode(&m.value); err != nil {
 		return fmt.Errorf("decoder.Decode(value): %v", err)
-	}
-	m.maxValue = -1
-	// Previous versions did not have a maxValue.
-	if buf.Len() > 0 {
-		if err := decoder.Decode(&m.maxValue); err != nil {
-			return fmt.Errorf("decoder.Decode(maxValue): %v", err)
-		}
 	}
 	m.nfa = combo4.NewNFA(combo4.AllContinuousMoves())
 
@@ -454,8 +422,8 @@ func (m *MDP) GobDecode(b []byte) error {
 
 // MDPPolicy contains only the information necessary to use the policy in an MDP.
 type MDPPolicy struct {
-	policy map[GameState]combo4.State
-	def    Policy // def is used if the policy does not contain the game state.
+	policy     map[GameState]combo4.State
+	defaultPol Policy // defaultPol is used if the policy does not contain the game state.
 }
 
 // NextState returns the next state. NextState panics if the preview is over
@@ -470,14 +438,14 @@ func (m *MDPPolicy) NextState(initial combo4.State, current tetris.Piece, previe
 		copy := next
 		return &copy
 	}
-	return m.def.NextState(initial, current, preview, endBagUsed)
+	return m.defaultPol.NextState(initial, current, preview, endBagUsed)
 }
 
-// Policy returns the MDP's policy.
-func (m *MDP) Policy() *MDPPolicy {
+// CompressedPolicy returns the MDP's policy in compressed form.
+func (m *MDP) CompressedPolicy() *MDPPolicy {
 	policy := make(map[GameState]combo4.State, len(m.policy))
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
-	def := PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
+	defaultPol := PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
 
 	for gState, choice := range m.policy {
 		// Only specify the choice if its not obvious.
@@ -485,7 +453,7 @@ func (m *MDP) Policy() *MDPPolicy {
 			continue
 		}
 		// Only specify the choice if it differs from the Scorer's policy.
-		if choice == *def.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed) {
+		if choice == *defaultPol.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed) {
 			continue
 		}
 		policy[gState] = choice
@@ -493,8 +461,27 @@ func (m *MDP) Policy() *MDPPolicy {
 
 	log.Printf("reduced states = %d\n", len(policy))
 	return &MDPPolicy{
-		policy: policy,
-		def:    def,
+		policy:     policy,
+		defaultPol: defaultPol,
+	}
+}
+
+type basicScorer struct {
+	nfa *combo4.NFA
+}
+
+// Score checks how many of the known next pieces can be consumed.
+func (s *basicScorer) Score(state combo4.State, next []tetris.Piece, bagUsed tetris.PieceSet) int64 {
+	_, consumed := s.nfa.EndStates(combo4.NewStateSet(state), next)
+	return int64(consumed)
+}
+
+// Policy returns the MDP's policy without compressing first.
+func (m *MDP) Policy() Policy {
+	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	return &MDPPolicy{
+		policy:     m.policy,
+		defaultPol: PolicyFromScorer(nfa, &basicScorer{nfa}),
 	}
 }
 
@@ -516,7 +503,10 @@ func (m *MDPPolicy) GobDecode(b []byte) error {
 	if err := decoder.Decode(&m.policy); err != nil {
 		return fmt.Errorf("decoder.Decode: %v", err)
 	}
+	// An uncompressed policy will return the same thing no matter
+	// what the NFAScorer is so use a permLen=7 which is used for
+	// compressed scorers.
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
-	m.def = PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
+	m.defaultPol = PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
 	return nil
 }

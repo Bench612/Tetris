@@ -33,7 +33,7 @@ func main() {
 func getMDP() *bot.MDP {
 	// Create a new MDP.
 	if *fromScratch {
-		mdp, err := bot.NewMDP(*previewLen, *maxCombo)
+		mdp, err := bot.NewMDP(*previewLen)
 		if err != nil {
 			fmt.Printf("NewMDP failed: %v\n", err)
 			os.Exit(1)

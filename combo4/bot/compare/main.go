@@ -17,12 +17,12 @@ import (
 
 var (
 	numTrials     = flag.Int("num_trials", 200, "the number of trials to test each scorer with")
-	previewSize   = flag.Int("preview_size", 5, "the number of pieces you can see in the preview")
+	previewSize   = flag.Int("preview_size", 6, "the number of pieces you can see in the preview")
 	deterministic = flag.Bool("deterministic", true, "whether the output is the same with each run")
 )
 
 // Which points to keep track of.
-var checkpoints = [...]int{100, 500, 1000, 2000, 5000}
+var checkpoints = [...]int{100, 500, 1000, 2000, 5000, 10000, 20000, 30000}
 
 var nfa = combo4.NewNFA(combo4.AllContinuousMoves())
 
@@ -33,7 +33,7 @@ var policiesWithNames = [...]struct {
 }{
 	{"Seq 3", bot.PolicyFromScorer(nfa, bot.NewNFAScorer(nfa, 3))},
 	{"Seq 6", bot.PolicyFromScorer(nfa, bot.NewNFAScorer(nfa, 6))},
-	{"MDP 5", newMDPPolicy("mdp_policy5.gob")},
+	{"MDP 6", newMDPPolicy("policy6.gob")},
 }
 
 func newMDPPolicy(path string) bot.Policy {
@@ -52,14 +52,14 @@ func newMDPPolicy(path string) bot.Policy {
 
 /* Sample Output
 
-Preview Size = 5 pieces
-Trials = 10000
-Max sequence per trial = 5000
-              Avg      Reach 100   Reach 500   Reach 1000   Reach 2000   Reach 5000
-Seq 3         279.1    59.1%       19.1%       4.8%         0.3%         0.0%
-Seq 6         396.7    64.1%       28.8%       10.9%        1.7%         0.0%
-MDP 5         855.3    69.7%       49.0%       31.7%        13.4%        0.7%
-Upper-bound   3815.9   76.3%       76.3%       76.2%        76.2%        76.2%
+Preview Size = 6 pieces
+Trials = 200
+Max sequence per trial = 30000
+              Avg       Reach 100   Reach 500   Reach 1000   Reach 2000   Reach 5000   Reach 10000   Reach 20000   Reach 30000
+Seq 3         587.2     67.0%       43.0%       21.5%        5.5%         0.0%         0.0%          0.0%          0.0%
+Seq 6         1102.3    70.5%       56.5%       41.0%        18.0%        2.0%         0.0%          0.0%          0.0%
+MDP 6         2420.9    73.5%       68.0%       57.0%        37.0%        15.0%        3.5%          0.5%          0.0%
+Upper-bound   22717.4   77.0%       77.0%       77.0%        77.0%        77.0%        76.0%         75.0%         75.0%
 
 */
 func main() {
