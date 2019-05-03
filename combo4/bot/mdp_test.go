@@ -54,7 +54,7 @@ func benchmarkMDPUpdate(b *testing.B, previewLen int) {
 
 func TestMDPUpdateValues(t *testing.T) {
 	t.Parallel()
-	mdp, err := NewMDP(1)
+	mdp, err := NewMDP(0)
 	if err != nil {
 		t.Fatalf("NewMDP: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestMDPUpdateValues(t *testing.T) {
 func TestCompressedPolicy(t *testing.T) {
 	t.Parallel()
 
-	mdp, err := NewMDP(1)
+	mdp, err := NewMDP(0)
 	if err != nil {
 		t.Fatalf("NewMDP: %v", err)
 	}
@@ -99,6 +99,16 @@ func TestMDPExpectedValue(t *testing.T) {
 		t.Fatalf("NewMDP: %v", err)
 	}
 	mdp.updateValues()
+
+	// Check the ExpectedValue of a known state.
+	known := GameState{
+		State:   combo4.State{Field: combo4.LeftI, Hold: tetris.I},
+		Current: tetris.O,
+		Preview: tetris.MustSeq([]tetris.Piece{tetris.O}),
+	}
+	if got := mdp.ExpectedValue(known); got != 1 {
+		t.Errorf("ExpectedValue got %.2f, want 1 for %+v", got, known)
+	}
 
 	// Check that the expected value of a GameState is accurate by doing
 	// some sampling.
@@ -144,6 +154,10 @@ func TestMDPExpectedValue(t *testing.T) {
 		sampleValue += float64(count) / numTrials
 	}
 
+	if sampleValue < 10 {
+		t.Errorf("got extremely low sample value")
+	}
+
 	if got := mdp.ExpectedValue(gState); math.Abs(got-sampleValue) > 1 {
 		t.Errorf("got ExpectedValue=%.2f, want %.2f", got, sampleValue)
 	}
@@ -151,7 +165,7 @@ func TestMDPExpectedValue(t *testing.T) {
 
 func TestMDPUpdatePolicy(t *testing.T) {
 	t.Parallel()
-	mdp, err := NewMDP(1)
+	mdp, err := NewMDP(0)
 	if err != nil {
 		t.Fatalf("NewMDP: %v", err)
 	}
@@ -191,15 +205,15 @@ func testMdpGobHelper(t *testing.T, mdp *MDP) {
 	if diff := cmp.Diff(decoding.value, mdp.value); diff != "" {
 		t.Errorf("value map differs after decoding: (-want +got)\n:%v", diff)
 	}
-	if decoding.previewLen != 1 {
-		t.Errorf("got previewLen=%d after decoding, want 1", decoding.previewLen)
+	if decoding.previewLen != mdp.previewLen {
+		t.Errorf("got previewLen=%d after decoding, want %d", decoding.previewLen, mdp.previewLen)
 	}
 }
 
 func TestMDPPolicyGob(t *testing.T) {
 	t.Parallel()
 
-	mdp, err := NewMDP(1)
+	mdp, err := NewMDP(0)
 	if err != nil {
 		t.Fatalf("NewMDP: %v", err)
 	}
