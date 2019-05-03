@@ -48,8 +48,8 @@ type GameState struct {
 
 // NewMDP constructs a new MDP for the given preview length.
 func NewMDP(previewLen int) (*MDP, error) {
-	if previewLen > 7 || previewLen < 1 {
-		return nil, errors.New("previewLen must be between 1 and 7")
+	if previewLen > 7 || previewLen < 0 {
+		return nil, errors.New("previewLen must be between 0 and 7")
 	}
 
 	m := &MDP{
@@ -128,13 +128,13 @@ func (m *MDP) ExpectedValue(gState GameState) float64 {
 	return float64(consumed) + 1
 }
 
-// initPolicy creates an initial policy based on what the scorer would do.
-// initPolicy assumes the scores have been initialized.
+// initPolicy creates an initial policy. initPolicy assumes the scores have
+// been initialized.
 func (m *MDP) initPolicy() {
 	m.policy = make(map[GameState]combo4.State, len(m.value))
-	d := PolicyFromScorer(m.nfa, NewNFAScorer(m.nfa, m.previewLen))
+	p := PolicyFromScorer(m.nfa, NewNFAScorer(m.nfa, m.previewLen))
 	for gState := range m.value {
-		choice := d.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed)
+		choice := p.NextState(gState.State, gState.Current, gState.Preview.Slice(), gState.BagUsed)
 		m.policy[gState] = *choice
 	}
 }
@@ -142,8 +142,11 @@ func (m *MDP) initPolicy() {
 // isStable is used to compute the initial values.
 // A GameState is considered stable if the current + preview can be consumed.
 func (m *MDP) isStable(gState GameState) bool {
-	start := combo4.NewStateSet(m.nfa.NextStates(gState.State, gState.Current)...)
-	_, consumed := m.nfa.EndStates(start, gState.Preview.Slice())
+	start := m.nfa.NextStates(gState.State, gState.Current)
+	if len(start) == 0 {
+		return false
+	}
+	_, consumed := m.nfa.EndStates(combo4.NewStateSet(start...), gState.Preview.Slice())
 	return consumed == m.previewLen
 }
 
@@ -178,7 +181,7 @@ func (m *MDP) updatePolicy() int {
 
 		var (
 			bestChoice combo4.State
-			bestVal    = -1.0
+			bestVal    = math.Inf(-1)
 		)
 		for _, choice := range choices {
 			if v := m.calcValue(gState, choice); v <= bestVal {
@@ -309,10 +312,15 @@ func (m *MDP) possibilities(cur GameState, choice combo4.State) []GameState {
 			newBag = bag.Add(p)
 		}
 
+		var preview tetris.Seq
+		if m.previewLen > 0 {
+			preview = previewShifted.SetIndex(m.previewLen-1, p)
+		}
+
 		possibilities = append(possibilities, GameState{
 			State:   choice,
 			Current: current,
-			Preview: previewShifted.SetIndex(m.previewLen-1, p),
+			Preview: preview,
 			BagUsed: newBag,
 		})
 	}
@@ -422,7 +430,9 @@ func (m *MDP) GobDecode(b []byte) error {
 
 // MDPPolicy contains only the information necessary to use the policy in an MDP.
 type MDPPolicy struct {
-	policy     map[GameState]combo4.State
+	policy map[GameState]combo4.State
+
+	compressed bool
 	defaultPol Policy // defaultPol is used if the policy does not contain the game state.
 }
 
@@ -463,6 +473,7 @@ func (m *MDP) CompressedPolicy() *MDPPolicy {
 	return &MDPPolicy{
 		policy:     policy,
 		defaultPol: defaultPol,
+		compressed: true,
 	}
 }
 
@@ -490,7 +501,10 @@ func (m *MDPPolicy) GobEncode() ([]byte, error) {
 	buf := new(bytes.Buffer)
 	encoder := gob.NewEncoder(buf)
 	if err := encoder.Encode(&m.policy); err != nil {
-		return nil, fmt.Errorf("encoder.Encode: %v", err)
+		return nil, fmt.Errorf("encoder.Encode(compressed): %v", err)
+	}
+	if err := encoder.Encode(&m.compressed); err != nil {
+		return nil, fmt.Errorf("encoder.Encode(compressed): %v", err)
 	}
 	return buf.Bytes(), nil
 }
@@ -501,12 +515,16 @@ func (m *MDPPolicy) GobDecode(b []byte) error {
 	buf.Write(b) // Always returns nil.
 	decoder := gob.NewDecoder(buf)
 	if err := decoder.Decode(&m.policy); err != nil {
-		return fmt.Errorf("decoder.Decode: %v", err)
+		return fmt.Errorf("decoder.Decode(policy): %v", err)
 	}
-	// An uncompressed policy will return the same thing no matter
-	// what the NFAScorer is so use a permLen=7 which is used for
-	// compressed scorers.
+	if err := decoder.Decode(&m.compressed); err != nil {
+		return fmt.Errorf("decoder.Decode(compressed): %v", err)
+	}
 	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
-	m.defaultPol = PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
+	if m.compressed {
+		m.defaultPol = PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
+	} else {
+		m.defaultPol = PolicyFromScorer(nfa, &basicScorer{nfa})
+	}
 	return nil
 }

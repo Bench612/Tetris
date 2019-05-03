@@ -104,3 +104,70 @@ func TestEndStates(t *testing.T) {
 		})
 	}
 }
+
+func TestStateSetEqual(t *testing.T) {
+	tests := []struct {
+		desc string
+		a, b StateSet
+		want bool
+	}{
+		{
+			desc: "Same sets",
+			a:    NewStateSet(State{Field: LeftI}),
+			b:    NewStateSet(State{Field: LeftI}),
+			want: true,
+		},
+		{
+			desc: "Different sets",
+			a:    NewStateSet(State{Field: LeftI}),
+			b:    NewStateSet(State{Field: RightI}),
+			want: false,
+		},
+		{
+			desc: "Sets with diffferent lengths",
+			a:    NewStateSet(State{Field: LeftI}),
+			b:    NewStateSet(State{Field: RightI}, State{Field: LeftI}),
+			want: false,
+		},
+		{
+			desc: "Nil StateSet and empty StateSet",
+			a:    nil,
+			b:    NewStateSet(),
+			want: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.desc, func(t *testing.T) {
+			if got := test.a.Equals(test.b); got != test.want {
+				t.Errorf("a.Equals(b)=%t, want %t", got, test.want)
+			}
+			if got := test.b.Equals(test.a); got != test.want {
+				t.Errorf("b.Equals(a)=%t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestStateSetSlice(t *testing.T) {
+	states := []State{{Field: LeftI}}
+	set := NewStateSet(states...)
+	if got := set.Slice(); !cmp.Equal(got, states) {
+		t.Errorf("Slice() got %v, want %v", got, states)
+	}
+}
+
+func TestNextStates(t *testing.T) {
+	startState := State{Field: LeftI}
+	piece := tetris.L
+
+	want := []State{{Field: LeftI, Hold: tetris.L}}
+
+	nfa := new(NFA)
+	nfa.trans[piece] = map[State][]State{
+		startState: want,
+	}
+
+	if got := nfa.NextStates(startState, piece); !cmp.Equal(got, want) {
+		t.Errorf("NextStates() got %v, want %v", got, want)
+	}
+}

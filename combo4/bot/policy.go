@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"math"
 	"sync"
 	"tetris"
 	"tetris/combo4"
@@ -48,8 +49,10 @@ func (p *scorePolicy) NextState(initial combo4.State, current tetris.Piece, prev
 	}
 	wg.Wait()
 
-	var bestState combo4.State
-	bestScore := int64(-1 << 63)
+	var (
+		bestState combo4.State
+		bestScore int64 = math.MinInt64
+	)
 	for idx, score := range scores {
 		if score > bestScore {
 			bestScore = score

@@ -45,7 +45,7 @@ func getMDP() *bot.MDP {
 	bytes, err := ioutil.ReadFile(*gobFile)
 	if err != nil {
 		fmt.Printf("failed to read file at %q: %v\n", *gobFile, err)
-		fmt.Printf("Maybe try using --from_scratch")
+		fmt.Println("Maybe try using --from_scratch")
 		os.Exit(1)
 	}
 	mdp := &bot.MDP{}
