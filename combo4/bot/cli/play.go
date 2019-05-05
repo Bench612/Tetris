@@ -30,7 +30,9 @@ func main() {
 		}
 	}
 
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	moves, _ := combo4.AllContinuousMoves()
+	nfa := combo4.NewNFA(moves)
+
 	input := make(chan tetris.Piece, 1)
 	output := bot.StartGame(bot.PolicyFromScorer(nfa, bot.NewNFAScorer(nfa, 8)), combo4.LeftI, first, next, input)
 

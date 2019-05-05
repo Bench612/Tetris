@@ -9,7 +9,7 @@ import (
 )
 
 func TestAllContinuousMoves(t *testing.T) {
-	all := AllContinuousMoves()
+	all, _ := AllContinuousMoves()
 
 	// Verify there are the right number of moves for each piece.
 	pieceCount := make(map[tetris.Piece]int)

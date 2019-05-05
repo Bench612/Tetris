@@ -8,7 +8,8 @@ import (
 )
 
 func BenchmarkNextState(b *testing.B) {
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	moves, _ := combo4.AllContinuousMoves()
+	nfa := combo4.NewNFA(moves)
 	states := nfa.States().Slice()
 
 	p := PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
@@ -49,6 +50,7 @@ func testPolicySucessRate(t *testing.T, p Policy, want float64) {
 }
 
 func TestNFASucessRate(t *testing.T) {
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	moves, _ := combo4.AllContinuousMoves()
+	nfa := combo4.NewNFA(moves)
 	testPolicySucessRate(t, PolicyFromScorer(nfa, NewNFAScorer(nfa, 7)), 0.7)
 }

@@ -7,14 +7,16 @@ import (
 )
 
 func BenchmarkNewNFAScorer7(b *testing.B) {
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	moves, _ := combo4.AllContinuousMoves()
+	nfa := combo4.NewNFA(moves)
 	for n := 0; n < b.N; n++ {
 		_ = NewNFAScorer(nfa, 7)
 	}
 }
 
 func BenchmarkNewNFAScorer8(b *testing.B) {
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	moves, _ := combo4.AllContinuousMoves()
+	nfa := combo4.NewNFA(moves)
 	for n := 0; n < b.N; n++ {
 		_ = NewNFAScorer(nfa, 8)
 	}
@@ -38,7 +40,8 @@ func TestInviableSeqs(t *testing.T) {
 			bag: tetris.NewPieceSet(tetris.I, tetris.J),
 		},
 	}
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	moves, _ := combo4.AllContinuousMoves()
+	nfa := combo4.NewNFA(moves)
 	s := NewNFAScorer(nfa, 7)
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {

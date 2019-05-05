@@ -106,7 +106,7 @@ func (p Piece) PieceSet() PieceSet {
 }
 
 // Mirror returns the mirrored version of a piece.
-func Mirror(p Piece) Piece {
+func (p Piece) Mirror() Piece {
 	switch p {
 	case L:
 		return J

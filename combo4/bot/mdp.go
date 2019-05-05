@@ -52,8 +52,9 @@ func NewMDP(previewLen int) (*MDP, error) {
 		return nil, errors.New("previewLen must be between 0 and 7")
 	}
 
+	continuousMoves, _ := combo4.AllContinuousMoves()
 	m := &MDP{
-		nfa:        combo4.NewNFA(combo4.AllContinuousMoves()),
+		nfa:        combo4.NewNFA(continuousMoves),
 		previewLen: previewLen,
 		value:      make(map[GameState]float64, int(128*28*7*7*math.Pow(2.6, float64(previewLen)))),
 	}
@@ -259,7 +260,7 @@ func (m *MDP) updateValues() int {
 					}
 					newVal := 1 + totalVal/c.possibilities
 
-					if math.Abs(newVal-c.value) > epsilon {
+					if math.Abs(newVal-c.value) >= epsilon {
 						changes++
 						c.value = newVal
 					}
@@ -404,7 +405,8 @@ func (m *MDP) GobDecode(b []byte) error {
 	if err := decoder.Decode(&m.value); err != nil {
 		return fmt.Errorf("decoder.Decode(value): %v", err)
 	}
-	m.nfa = combo4.NewNFA(combo4.AllContinuousMoves())
+	continuousMoves, _ := combo4.AllContinuousMoves()
+	m.nfa = combo4.NewNFA(continuousMoves)
 
 	hasInitialVals := true
 	for _, v := range m.value {
@@ -454,12 +456,11 @@ func (m *MDPPolicy) NextState(initial combo4.State, current tetris.Piece, previe
 // CompressedPolicy returns the MDP's policy in compressed form.
 func (m *MDP) CompressedPolicy() *MDPPolicy {
 	policy := make(map[GameState]combo4.State, len(m.policy))
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
-	defaultPol := PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
+	defaultPol := PolicyFromScorer(m.nfa, NewNFAScorer(m.nfa, 7))
 
 	for gState, choice := range m.policy {
 		// Only specify the choice if its not obvious.
-		if choices := nfa.NextStates(gState.State, gState.Current); len(choices) <= 1 {
+		if choices := m.nfa.NextStates(gState.State, gState.Current); len(choices) <= 1 {
 			continue
 		}
 		// Only specify the choice if it differs from the Scorer's policy.
@@ -489,10 +490,9 @@ func (s *basicScorer) Score(state combo4.State, next []tetris.Piece, bagUsed tet
 
 // Policy returns the MDP's policy without compressing first.
 func (m *MDP) Policy() Policy {
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
 	return &MDPPolicy{
 		policy:     m.policy,
-		defaultPol: PolicyFromScorer(nfa, &basicScorer{nfa}),
+		defaultPol: PolicyFromScorer(m.nfa, &basicScorer{m.nfa}),
 	}
 }
 
@@ -520,7 +520,8 @@ func (m *MDPPolicy) GobDecode(b []byte) error {
 	if err := decoder.Decode(&m.compressed); err != nil {
 		return fmt.Errorf("decoder.Decode(compressed): %v", err)
 	}
-	nfa := combo4.NewNFA(combo4.AllContinuousMoves())
+	continuousMoves, _ := combo4.AllContinuousMoves()
+	nfa := combo4.NewNFA(continuousMoves)
 	if m.compressed {
 		m.defaultPol = PolicyFromScorer(nfa, NewNFAScorer(nfa, 7))
 	} else {

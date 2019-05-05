@@ -55,7 +55,7 @@ func TestField4x4(t *testing.T) {
 	}
 }
 
-func TestMirrorField4x4(t *testing.T) {
+func TestField4x4Mirror(t *testing.T) {
 	const X, o = true, false
 
 	tests := []struct {
@@ -86,9 +86,9 @@ func TestMirrorField4x4(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			got := MirrorField4x4(test.input)
+			got := test.input.Mirror()
 			if diff := cmp.Diff(got, test.want); diff != "" {
-				t.Errorf("MirrorField4x4 got mismatch(-want +got):\n%s", diff)
+				t.Errorf("Mirror got mismatch(-want +got):\n%s", diff)
 			}
 		})
 	}

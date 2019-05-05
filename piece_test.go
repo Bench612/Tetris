@@ -170,7 +170,7 @@ func TestMirror(t *testing.T) {
 		}
 		want := strings.Join(wantLines, "\n")
 
-		mirror := Mirror(piece)
+		mirror := piece.Mirror()
 		got := mirror.GameString()
 		if diff := cmp.Diff(want, got); diff != "" {
 			t.Errorf("Mirror.GameString() mismatch(-want +got):\n%s", diff)

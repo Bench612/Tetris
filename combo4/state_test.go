@@ -23,7 +23,8 @@ func BenchmarkNFA700(b *testing.B) {
 }
 
 func benchmarkNFA(b *testing.B, sequenceLen int) {
-	nfa := NewNFA(AllContinuousMoves())
+	moves, _ := AllContinuousMoves()
+	nfa := NewNFA(moves)
 
 	inputs := make([][]tetris.Piece, 0, b.N)
 	for n := 0; n < b.N; n++ {
@@ -42,7 +43,9 @@ func benchmarkNFA(b *testing.B, sequenceLen int) {
 }
 
 func TestEndStates(t *testing.T) {
-	nfa := NewNFA(AllContinuousMoves())
+	moves, _ := AllContinuousMoves()
+	nfa := NewNFA(moves)
+
 	const X, o = true, false
 
 	tests := []struct {

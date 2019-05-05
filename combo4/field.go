@@ -37,11 +37,11 @@ func (f Field4x4) String() string {
 	runes := make([]rune, 0, 20)
 	for r := 0; r < 4; r++ {
 		for c := 0; c < 4; c++ {
-			if f.isSet(r, c) {
-				runes = append(runes, '□')
-			} else {
+			if f.IsEmpty(r, c) {
 				runes = append(runes, '_')
+				continue
 			}
+			runes = append(runes, '□')
 		}
 		runes = append(runes, '\n')
 	}
@@ -53,7 +53,7 @@ func (f Field4x4) Array2D() [4][4]bool {
 	var s [4][4]bool
 	for r := 0; r < 4; r++ {
 		for c := 0; c < 4; c++ {
-			s[r][c] = f.isSet(r, c)
+			s[r][c] = !f.IsEmpty(r, c)
 		}
 	}
 	return s
@@ -64,18 +64,18 @@ func (f Field4x4) NumOccupied() int {
 	return bits.OnesCount16(uint16(f))
 }
 
-// isSet returns if the specified row and column is occupied.
-// isSet returns false for values out of bounds.
-func (f Field4x4) isSet(row, col int) bool {
+// IsEmpty returns if the specified row and column is occupied.
+// IsEmpty returns false for values out of bounds.
+func (f Field4x4) IsEmpty(row, col int) bool {
 	if row >= 4 || col >= 4 || row < 0 || col < 0 {
 		return false
 	}
 	var mask uint = 1 << uint((row*4)+col)
-	return uint(f)&mask != 0
+	return uint(f)&mask == 0
 }
 
-// MirrorField4x4 reflects a Field4x4 across the y axis through the middle.
-func MirrorField4x4(f Field4x4) Field4x4 {
+// Mirror reflects a Field4x4 across the y axis through the middle.
+func (f Field4x4) Mirror() Field4x4 {
 	array := f.Array2D()
 	mirrored := make([][4]bool, 0, 4)
 	for _, row := range array {

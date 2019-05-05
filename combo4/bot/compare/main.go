@@ -24,7 +24,10 @@ var (
 // Which points to keep track of.
 var checkpoints = [...]int{100, 500, 1000, 2000, 5000, 10000, 20000, 30000}
 
-var nfa = combo4.NewNFA(combo4.AllContinuousMoves())
+var nfa = func() *combo4.NFA {
+	moves, _ := combo4.AllContinuousMoves()
+	return combo4.NewNFA(moves)
+}()
 
 // The Policies to test.
 var policiesWithNames = [...]struct {
