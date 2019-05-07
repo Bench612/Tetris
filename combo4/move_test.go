@@ -9,7 +9,7 @@ import (
 )
 
 func TestAllContinuousMoves(t *testing.T) {
-	all, _ := AllContinuousMoves()
+	all, actions := AllContinuousMoves()
 
 	// Verify there are the right number of moves for each piece.
 	pieceCount := make(map[tetris.Piece]int)
@@ -44,6 +44,23 @@ func TestAllContinuousMoves(t *testing.T) {
 	for move, count := range moveCount {
 		if count != 1 {
 			t.Errorf("move %+v occurs %d times, want 1", move, count)
+		}
+	}
+
+	// Verify that actions have NoAction.
+	for move, acts := range actions {
+		if len(acts) == 0 {
+			t.Errorf("move %+v has no actions", move)
+			continue
+		}
+		if acts[len(acts)-1] != tetris.HardDrop {
+			t.Errorf("move %+v does not end in HardDrop", move)
+		}
+		for _, a := range acts {
+			if a == tetris.NoAction {
+				t.Errorf("move %+v has a NoAction step", move)
+				continue
+			}
 		}
 	}
 

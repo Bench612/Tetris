@@ -32,10 +32,18 @@ func NewField4x4(field [][4]bool) Field4x4 {
 	return Field4x4(f4x4)
 }
 
+func (f Field4x4) isRowEmpty(row uint) bool {
+	mask := 15 << (row * 4)
+	return mask&int(f) == 0
+}
+
 // String returns a string representation of a field.
 func (f Field4x4) String() string {
 	runes := make([]rune, 0, 20)
 	for r := 0; r < 4; r++ {
+		if f.isRowEmpty(uint(r)) {
+			continue
+		}
 		for c := 0; c < 4; c++ {
 			if f.IsEmpty(r, c) {
 				runes = append(runes, '_')

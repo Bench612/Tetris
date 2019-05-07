@@ -44,7 +44,8 @@ type moveActions struct {
 // See https://harddrop.com/wiki/Combo_Setups#4-Wide_with_3_Residua.
 //
 // AllContinousMoves also returns a set of actions that be done to
-// execute the move. These actions apply to NullpoMino only.
+// execute the move. These actions apply to a center 4 wide setup
+// only.
 func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 	withoutReflect := make([]*moveActions, 0, 70)
 
@@ -97,7 +98,7 @@ func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 				{X, o, o, X},
 			}),
 			Piece:   tetris.S,
-			Actions: []tetris.Action{tetris.Right},
+			Actions: []tetris.Action{tetris.Right, tetris.RotateCW},
 		}, {
 			Start: start,
 			End: NewField4x4([][4]bool{
@@ -190,7 +191,7 @@ func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 				{X, X, X, o},
 			}),
 			Piece:   tetris.O,
-			Actions: []tetris.Action{tetris.Right},
+			Actions: nil,
 		},
 	}...)
 	start = NewField4x4([][4]bool{
@@ -293,7 +294,7 @@ func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 				{o, o, X, X},
 			}),
 			Piece:   tetris.S,
-			Actions: []tetris.Action{tetris.Right, tetris.RotateCCW},
+			Actions: []tetris.Action{tetris.Right, tetris.RotateCCW, tetris.Right},
 		}, {
 			Start: start,
 			End: NewField4x4([][4]bool{
@@ -386,7 +387,7 @@ func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 				{X, X, X, o},
 			}),
 			Piece:   tetris.J,
-			Actions: []tetris.Action{tetris.RotateCW, tetris.RotateCCW},
+			Actions: []tetris.Action{tetris.RotateCCW, tetris.RotateCCW},
 		}, {
 			Start: start,
 			End: NewField4x4([][4]bool{
@@ -427,7 +428,8 @@ func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 				{X, o, o, o},
 				{X, X, o, o},
 			}),
-			Piece: tetris.J,
+			Piece:   tetris.J,
+			Actions: nil,
 		}, {
 			Start: start,
 			End: NewField4x4([][4]bool{
@@ -441,7 +443,7 @@ func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 				{o, X, X, X},
 			}),
 			Piece:   tetris.Z,
-			Actions: []tetris.Action{tetris.Right, tetris.RotateCW, tetris.SoftDrop, tetris.RotateCCW},
+			Actions: []tetris.Action{tetris.Right, tetris.RotateCCW, tetris.Right, tetris.SoftDrop, tetris.RotateCCW},
 		},
 	}...)
 	start = NewField4x4([][4]bool{
@@ -508,7 +510,7 @@ func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 				{X, o, X, X},
 			}),
 			Piece:   tetris.J,
-			Actions: []tetris.Action{tetris.Right},
+			Actions: []tetris.Action{tetris.Right, tetris.RotateCW, tetris.RotateCW},
 		},
 	}...)
 	start = NewField4x4([][4]bool{
@@ -604,7 +606,7 @@ func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 				{o, X, X, X},
 			}),
 			Piece:   tetris.S,
-			Actions: []tetris.Action{tetris.RotateCW, tetris.SoftDrop, tetris.RotateCCW},
+			Actions: []tetris.Action{tetris.RotateCW, tetris.SoftDrop, tetris.RotateCW},
 		},
 	}...)
 	start = NewField4x4([][4]bool{
@@ -663,11 +665,13 @@ func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 			mirrActions = mirrorActions(unreflected.Actions)
 		default:
 			if unreflected.Actions[0] == tetris.Right {
+				// Skip the first Right action.
 				mirrActions = mirrorActions(unreflected.Actions[1:])
 				break
 			}
-			mirrActions = make([]tetris.Action, len(unreflected.Actions)+1)
-			mirrActions = append(mirrActions, tetris.Left)
+			// Prepend a Left action.
+			mirrActions = make([]tetris.Action, 0, len(unreflected.Actions)+1)
+			mirrActions = append(mirrActions, tetris.Right)
 			mirrActions = append(mirrActions, mirrorActions(unreflected.Actions)...)
 		}
 		actions[move] = mirrActions

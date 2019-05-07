@@ -15,7 +15,7 @@ type State struct {
 }
 
 func (s State) String() string {
-	return fmt.Sprintf("Hold:\n%s\nField:\n%s", s.Hold.GameString(), s.Field)
+	return fmt.Sprintf("Hold: %s\nField:\n%s", s.Hold, s.Field)
 }
 
 // StateSet represents a set of States.

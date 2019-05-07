@@ -15,6 +15,28 @@ const (
 	HardDrop
 )
 
+func (a Action) String() string {
+	switch a {
+	case NoAction:
+		return "No_Action"
+	case Hold:
+		return "Swap_Hold"
+	case Left:
+		return "Left"
+	case Right:
+		return "Right"
+	case RotateCW:
+		return "Rotate_CW"
+	case RotateCCW:
+		return "Rotate_CCW"
+	case SoftDrop:
+		return "Soft_Drop"
+	case HardDrop:
+		return "Hard_Drop"
+	}
+	return "Unknown"
+}
+
 // Mirror returns the equivalent action if the field is reflected across the y
 // axis.
 func (a Action) Mirror() Action {
