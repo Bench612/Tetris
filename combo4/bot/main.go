@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"io"
 	"log"
+	"math"
 	"os"
 	"runtime"
 	"tetris"
@@ -23,20 +24,12 @@ import (
 )
 
 var (
-	pressWait  = flag.Duration("press_delay", 25*time.Millisecond, "Time to wait between key presses.")
+	pressWait  = flag.Duration("press_delay", 50*time.Millisecond, "Time to wait between key presses.")
 	lineWait   = flag.Duration("clear_delay", 0, "Time to wait for a line to clear.")
 	policyFile = flag.String("policy_file", "policy_6preview.gob.gz", "Path the the gzip policy file. If empty-string, will compute an AI from scratch.")
 )
 
 const initialField = combo4.LeftI
-
-// Co-ordinates to read the pixels of the last preview piece.
-// Reads a square starting at lastPreviewPoint in the top left
-// and moving readWith down and right.
-var (
-	lastPreviewPoint = image.Point{X: 1722, Y: 1030}
-	readWidth        = 3
-)
 
 var actionKeys = map[tetris.Action]int{
 	tetris.Left:      kb.VK_LEFT,
@@ -48,10 +41,32 @@ var actionKeys = map[tetris.Action]int{
 	tetris.HardDrop:  kb.VK_SPACE,
 }
 
-// Width of square to scan for pixel colors.
-const scanWidth = 5
+// Co-ordinates to read the pixels of the preview pieces.
+// These defaults are how NullpoMino opens on a 4K screen.
+var (
+	// This assumes the initialField is LeftI.
+	initialCurrPoint = image.Point{X: 1500, Y: 1400}
+
+	previewPoints = []image.Point{
+		{X: 1500, Y: 782},
+		{X: 1620, Y: 790},
+		{X: 1700, Y: 790},
+		{X: 1725, Y: 870},
+		{X: 1725, Y: 950},
+		{X: 1725, Y: 1030},
+	}
+
+	holdPoint = image.Point{X: 1370, Y: 790}
+
+	// Reads a square starting at the points in the top left
+	// and moving readWith down and right.
+	readWidth = 3
+)
 
 var colors = map[tetris.Piece]color.RGBA{
+	// Assuming no/black background.
+	tetris.EmptyPiece: color.RGBA{R: 0, G: 0, B: 0},
+
 	tetris.Z: color.RGBA{R: 194, G: 27, B: 48},
 	tetris.S: color.RGBA{R: 30, G: 205, B: 30},
 	tetris.J: color.RGBA{R: 28, G: 49, B: 196},
@@ -61,63 +76,61 @@ var colors = map[tetris.Piece]color.RGBA{
 	tetris.T: color.RGBA{R: 157, G: 21, B: 220},
 }
 
+var moves, mActions = combo4.AllContinuousMoves()
+
 func main() {
-
-	// Parse the pieces from the args.
-	args := os.Args
-	if len(args) != 3 {
-		log.Fatalf(`expected two args <first piece e.g "j"> <next known pieces e.g "ilostz">`)
-	}
-	first := tetris.PieceFromRune(rune((args[1])[0]))
-	if first == tetris.EmptyPiece {
-		log.Fatalf("piece must be one of %v.", tetris.NonemptyPieces)
-	}
-	next := tetris.SeqFromStr(args[2])
-	for _, p := range next {
-		if p == tetris.EmptyPiece {
-			log.Fatalf("each piece must be one of %v.", tetris.NonemptyPieces)
-		}
-	}
-
-	currPieceCh := make(chan tetris.Piece, len(next)+2)
-	currPieceCh <- first
-	for _, p := range next {
-		currPieceCh <- p
-	}
-
 	fmt.Println("Loading AI...")
-	moves, mActions := combo4.AllContinuousMoves()
-	nfa := combo4.NewNFA(moves)
 	var pol policy.Policy
 	if *policyFile == "" {
+		nfa := combo4.NewNFA(moves)
 		pol = policy.FromScorer(nfa, policy.NewNFAScorer(nfa, 7))
 	} else {
 		var err error
 		pol, err = policyFromPath(*policyFile)
 		if err != nil {
-			fmt.Printf("failed to read policy from file: %v\n", err)
-			os.Exit(1)
+			log.Fatalf("failed to read policy from file: %v\n", err)
 		}
 	}
 
 	keybond, err := newKeyBonding()
 	if err != nil {
-		fmt.Printf("newKeyBonding failed: %v", err)
-		os.Exit(1)
+		log.Fatalf("newKeyBonding failed: %v", err)
 	}
 
+	for {
+		playGame(pol, keybond)
+	}
+}
+
+func playGame(pol policy.Policy, keybond *kb.KeyBonding) {
 	fmt.Println("Middle click the mouse when you are ready for the bot to begin.")
 	click := robotgo.AddEvent("center")
 	if !click {
-		fmt.Println("middle mouse button not clicked")
-		os.Exit(1)
+		log.Fatal("middle mouse button not clicked")
 	}
 
-	prevState := combo4.State{Field: initialField}
+	// Read the pieces from the screen.
+	piecePnts := append([]image.Point{initialCurrPoint}, previewPoints...)
+	var initialPieces []tetris.Piece
+	for _, pnt := range piecePnts {
+		piece := pieceAt(pnt)
+		if piece == tetris.EmptyPiece {
+			log.Fatalf("got EmptyPiece piece at %v.", pnt)
+		}
+		initialPieces = append(initialPieces, piece)
+	}
+	currPieceCh := make(chan tetris.Piece, len(initialPieces)+1)
+	for _, p := range initialPieces {
+		currPieceCh <- p
+	}
+	fmt.Printf("First piece: %v\n", initialPieces[0])
+	fmt.Printf("Preview: %v\n", initialPieces[1:])
 
-	policyInput := make(chan tetris.Piece, 1)
-
-	for nextStatePtr := range policy.StartGame(pol, initialField, first, next, policyInput) {
+	var (
+		prevState   = combo4.State{Field: initialField}
+		policyInput = make(chan tetris.Piece, 1)
+	)
+	for nextStatePtr := range policy.StartGame(pol, initialField, initialPieces[0], initialPieces[1:], policyInput) {
 		if nextStatePtr == nil {
 			fmt.Println("No more combos!")
 			return
@@ -135,22 +148,14 @@ func main() {
 			if !ok {
 				panic(fmt.Sprintf("Unmapped tetris.Action = %v.\n", k))
 			}
-			if err := keyTap(keybond, k); err != nil {
-				fmt.Printf("failed keyTap: %v\n", err)
-				os.Exit(1)
-			}
+			keyTap(keybond, k)
 			time.Sleep(*pressWait)
 		}
 
-		// Wait for the line to clear.
 		time.Sleep(*lineWait)
 
-		// Read the next preview piece.
-		nextPreview, err := lastPreviewPiece()
-		if err != nil {
-			fmt.Printf("getPiece failed: %v\n", err)
-			os.Exit(1)
-		}
+		// Read the new last preview piece.
+		nextPreview := pieceAt(previewPoints[len(previewPoints)-1])
 		policyInput <- nextPreview
 		currPieceCh <- nextPreview
 
@@ -185,14 +190,15 @@ func actions(mActions map[combo4.Move][]tetris.Action, prevState, nextState comb
 	return actions
 }
 
-func lastPreviewPiece() (tetris.Piece, error) {
+// pieceAt returns the piece at a point or exits the program.
+func pieceAt(point image.Point) tetris.Piece {
 	// Find the average color
 	img, err := screenshot.CaptureRect(image.Rectangle{
-		Min: image.Point{X: lastPreviewPoint.X - readWidth, Y: lastPreviewPoint.Y - readWidth},
-		Max: image.Point{X: lastPreviewPoint.X + readWidth, Y: lastPreviewPoint.Y + readWidth},
+		Min: image.Point{X: point.X - readWidth, Y: point.Y - readWidth},
+		Max: image.Point{X: point.X + readWidth, Y: point.Y + readWidth},
 	})
 	if err != nil {
-		return 0, fmt.Errorf("screenshot.Capture: %v", err)
+		log.Fatalf("failed to read piece at %v: %v", point, err)
 	}
 	var r, g, b int
 	for x := img.Bounds().Min.X; x < img.Bounds().Max.X; x++ {
@@ -208,17 +214,18 @@ func lastPreviewPiece() (tetris.Piece, error) {
 	g /= area
 	b /= area
 	var (
-		minDistSq = -1
+		minDistSq = math.MaxInt32
 		piece     tetris.Piece
 	)
 	for p, c := range colors {
 		distSq := (int(c.R)-r)*(int(c.R)-r) + (int(c.G)-g)*(int(c.G)-g) + (int(c.B)-b)*(int(c.B)-b)
-		if minDistSq == -1 || minDistSq > distSq {
-			minDistSq = distSq
-			piece = p
+		if minDistSq <= distSq {
+			continue
 		}
+		minDistSq = distSq
+		piece = p
 	}
-	return piece, nil
+	return piece
 }
 
 func newKeyBonding() (*kb.KeyBonding, error) {
@@ -228,15 +235,19 @@ func newKeyBonding() (*kb.KeyBonding, error) {
 	}
 	// For linux, it is very important wait 2 seconds
 	if runtime.GOOS == "linux" {
+		fmt.Println("Creating fake keyboard...")
 		time.Sleep(2 * time.Second)
 	}
 	return &kb, nil
 }
 
-func keyTap(keybnd *kb.KeyBonding, key int) error {
+// keyTap presses a key or exits.
+func keyTap(keybnd *kb.KeyBonding, key int) {
 	keybnd.Clear()
 	keybnd.SetKeys(key)
-	return keybnd.Launching()
+	if err := keybnd.Launching(); err != nil {
+		log.Fatalf("key press failed: %v", err)
+	}
 }
 
 func policyFromPath(path string) (policy.Policy, error) {

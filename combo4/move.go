@@ -169,7 +169,7 @@ func AllContinuousMoves() ([]Move, map[Move][]tetris.Action) {
 				{X, X, o, o},
 			}),
 			Piece:   tetris.L,
-			Actions: []tetris.Action{tetris.RotateCCW},
+			Actions: []tetris.Action{tetris.RotateCW},
 		}, {
 			Start: start,
 			End: NewField4x4([][4]bool{
