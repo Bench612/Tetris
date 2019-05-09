@@ -33,7 +33,7 @@ func FromScorer(nfa *combo4.NFA, scorer Scorer) Policy {
 	}
 }
 
-// NextState returns the "best" possible next state or nil if there are no
+// NextState returns the best possible next state or nil if there are no
 // possible moves.
 func (p *scorePolicy) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
 	choices := p.nfa.NextStates(initial, current)
@@ -70,9 +70,9 @@ func (p *scorePolicy) NextState(initial combo4.State, current tetris.Piece, prev
 	return &bestState
 }
 
-// StartGame returns a channel that outputs the next state and then an
-// additional state for each input. The channel returns nil if there are no
-// more possible moves.
+// StartGame returns a channel that outputs the next state after the beginning
+// and then an additional state for each input. The channel returns nil if
+// there are no more possible moves.
 //
 // StartGame assumes there is no piece held and the game is starting with no
 // pieces played yet (starting with an empty bag).

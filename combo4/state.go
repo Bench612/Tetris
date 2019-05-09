@@ -5,7 +5,7 @@ import (
 	"tetris"
 )
 
-// State represents the state of the playing field. Not including the queue.
+// State represents the state of the playing field. Not including the preview.
 type State struct {
 	Field Field4x4
 	// The piece being held. Possibly the EmptyPiece.
@@ -112,7 +112,7 @@ func (nfa *NFA) EndStates(initial StateSet, pieces []tetris.Piece) (StateSet, in
 }
 
 // NewNFA creates a new NFA. In general callers should reuse the same NFA
-// everywhere because the NFA is safe for concurrent use.
+// because the NFA is safe for concurrent use.
 func NewNFA(movesList []Move) *NFA {
 	// Get a set of all Field4x4s which have possible moves.
 	startFields := make(map[Field4x4]bool)

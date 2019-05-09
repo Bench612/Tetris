@@ -17,26 +17,13 @@ func (m Move) String() string {
 	return fmt.Sprintf("{\nStart:\n%v\nEnd:\n%v\nPiece: %v\n}\n", m.Start, m.End, m.Piece)
 }
 
-// Cached list of actions for each move.
-// Actions are specific to NullpoMino.
-var actionsMap = make(map[Move][]tetris.Action)
-
-// Actions returns the actions that must be done to perform the move. These
-// are specific to NullpoMino.
-func (m Move) Actions() []tetris.Action {
-	if cached, ok := actionsMap[m]; ok {
-		return cached
-	}
-	// TODO(benjaminchang): Add to the cache.
-	return nil
-}
-
 type moveActions struct {
 	Start Field4x4
 	End   Field4x4
 	Piece tetris.Piece
 
-	// Actions that should be performed. Specific to NullpoMino
+	// Actions that should be performed. These assume soft drop brings the
+	// piece all the way the bottom and that the 4 wide is in the center.
 	Actions []tetris.Action
 }
 

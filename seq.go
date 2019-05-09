@@ -9,8 +9,8 @@ import (
 // Seq can be used as a map key.
 type Seq uint32
 
-// NewSeq returns a Seq or an error if the length of the slice
-// is over 8.
+// NewSeq returns a Seq or an error if the slice contains any EmptyPieces
+// or the length of the slice is over 8.
 func NewSeq(pieces []Piece) (Seq, error) {
 	if len(pieces) > 8 {
 		return 0, errors.New("len(pieces) must be 8 or less")

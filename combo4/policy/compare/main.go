@@ -1,10 +1,12 @@
-// Package main is used to compare different Scorers.
+// Package main is used to compare different policies.
 package main
 
 import (
+	"bytes"
+	"compress/gzip"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"os"
 	"sync"
@@ -36,17 +38,32 @@ var policiesWithNames = [...]struct {
 }{
 	{"Seq 3", policy.FromScorer(nfa, policy.NewNFAScorer(nfa, 3))},
 	{"Seq 6", policy.FromScorer(nfa, policy.NewNFAScorer(nfa, 6))},
-	{"MDP 6", newMDPPolicy("policy6.gob")},
+	{"MDP 6", newMDPPolicy("policy_6preview.gob.gz")},
 }
 
 func newMDPPolicy(path string) policy.Policy {
-	bytes, err := ioutil.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
-		fmt.Printf("ioutil.ReadFile(%q): %v\n", path, err)
+		fmt.Printf("os.Open: %v\n", err)
 		os.Exit(1)
 	}
+	defer file.Close()
+
+	var buf bytes.Buffer
+	gz, err := gzip.NewReader(file)
+	if err != nil {
+		fmt.Printf("gzip.NewReader: %v\n", err)
+		os.Exit(1)
+	}
+	defer gz.Close()
+
+	if _, err := io.Copy(&buf, gz); err != nil {
+		fmt.Printf("read file contents failed: %v\n", err)
+		os.Exit(1)
+	}
+
 	mdpPol := &policy.MDPPolicy{}
-	if err := mdpPol.GobDecode(bytes); err != nil {
+	if err := mdpPol.GobDecode(buf.Bytes()); err != nil {
 		fmt.Printf("GobDecode failed: %v\n", err)
 		os.Exit(1)
 	}

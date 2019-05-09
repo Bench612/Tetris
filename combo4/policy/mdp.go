@@ -430,7 +430,10 @@ func (m *MDP) GobDecode(b []byte) error {
 	return nil
 }
 
-// MDPPolicy contains only the information necessary to use the policy in an MDP.
+// MDPPolicy contains only the information necessary to use the policy in an
+// MDP.
+//
+// MDPPolicy is safe for concurrent use.
 type MDPPolicy struct {
 	policy map[GameState]combo4.State
 
@@ -439,7 +442,7 @@ type MDPPolicy struct {
 }
 
 // NextState returns the next state. NextState panics if the preview is over
-// length 7.
+// length 8.
 func (m *MDPPolicy) NextState(initial combo4.State, current tetris.Piece, preview []tetris.Piece, endBagUsed tetris.PieceSet) *combo4.State {
 	if next, ok := m.policy[GameState{
 		State:   initial,

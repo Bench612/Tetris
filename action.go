@@ -13,6 +13,9 @@ const (
 	RotateCCW
 	SoftDrop
 	HardDrop
+
+	// actionLimit is used to iterate through all actions.
+	actionLimit
 )
 
 func (a Action) String() string {

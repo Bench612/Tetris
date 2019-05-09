@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	pressWait  = flag.Duration("press_delay", 50*time.Millisecond, "Time to wait between key presses.")
+	pressWait  = flag.Duration("press_delay", 25*time.Millisecond, "Time to wait between key presses.")
 	lineWait   = flag.Duration("clear_delay", 0, "Time to wait for a line to clear.")
 	policyFile = flag.String("policy_file", "policy_6preview.gob.gz", "Path the the gzip policy file. If empty-string, will compute an AI from scratch.")
 )
